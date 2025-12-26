@@ -6704,12 +6704,15 @@ function FloorPlanPro() {
     };
 
     const handleBlur = () => {
-      focusedRef.current = false;
-      setIsFocused(false);
-      // Call onChange only when user is done editing
-      if (localValue !== value) {
-        onChange(localValue);
-      }
+      // Delay blur to prevent keyboard from closing on Android
+      setTimeout(() => {
+        focusedRef.current = false;
+        setIsFocused(false);
+        // Call onChange only when user is done editing
+        if (localValue !== value) {
+          onChange(localValue);
+        }
+      }, 100);
     };
     
     return (
@@ -6732,12 +6735,16 @@ function FloorPlanPro() {
             onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
-            onTouchStart={(e) => e.stopPropagation()}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+            }}
             onTouchMove={(e) => e.stopPropagation()}
-            onTouchEnd={(e) => { e.stopPropagation(); }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+            }}
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); e.target.focus(); }}
+            onClick={(e) => e.stopPropagation()}
             min={min}
             max={max}
             step={step || (type === 'number' ? 1 : undefined)}
