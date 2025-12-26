@@ -6682,9 +6682,9 @@ function FloorPlanPro() {
     const handleChange = (e) => {
       const newValue = e.target.value;
       setLocalValue(newValue);
-      onChange(newValue);
+      // Don't call onChange immediately - wait for blur
     };
-    
+
     const handleFocus = (e) => {
       e.stopPropagation();
       setIsFocused(true);
@@ -6695,10 +6695,13 @@ function FloorPlanPro() {
         }
       }, 10);
     };
-    
+
     const handleBlur = () => {
       setIsFocused(false);
-      setLocalValue(value); // Sync with external value on blur
+      // Call onChange only when user is done editing
+      if (localValue !== value) {
+        onChange(localValue);
+      }
     };
     
     return (
@@ -9775,33 +9778,36 @@ function FloorPlanPro() {
           )}
           
           {/* Stats */}
-          <div style={{
-            position: 'absolute',
-            bottom: '12px',
-            left: '12px',
-            background: 'rgba(8,12,16,0.9)',
-            border: '1px solid rgba(0,200,255,0.15)',
-            borderRadius: '8px',
-            padding: '10px 14px',
-            backdropFilter: 'blur(10px)',
-          }}>
-            <div style={{ color: '#4a6070', fontSize: '8px', letterSpacing: '0.5px', marginBottom: '4px' }}>STATS</div>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              {[
-                { label: 'Walls', value: stats.walls },
-                { label: 'Doors', value: stats.doors },
-                { label: 'Windows', value: stats.windows },
-                { label: 'Furn', value: stats.furniture },
-                { label: 'Dims', value: stats.dimensions },
-                { label: 'Sq.Ft', value: stats.area },
-              ].map(stat => (
-                <div key={stat.label}>
-                  <div style={{ color: '#00c8ff', fontSize: '14px', fontWeight: '600' }}>{stat.value}</div>
-                  <div style={{ color: '#4a6070', fontSize: '8px' }}>{stat.label}</div>
-                </div>
-              ))}
+          {viewMode !== 'paper' && viewMode !== '3d' && (
+            <div style={{
+              position: 'absolute',
+              bottom: isMobile ? '70px' : '12px',
+              left: '12px',
+              background: 'rgba(8,12,16,0.95)',
+              border: '1px solid rgba(0,200,255,0.2)',
+              borderRadius: '8px',
+              padding: isMobile ? '8px 12px' : '10px 14px',
+              backdropFilter: 'blur(10px)',
+              zIndex: 100,
+            }}>
+              <div style={{ color: '#4a6070', fontSize: '8px', letterSpacing: '0.5px', marginBottom: '4px' }}>STATS</div>
+              <div style={{ display: 'flex', gap: isMobile ? '8px' : '12px', flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Walls', value: stats.walls },
+                  { label: 'Doors', value: stats.doors },
+                  { label: 'Windows', value: stats.windows },
+                  { label: 'Furn', value: stats.furniture },
+                  { label: 'Dims', value: stats.dimensions },
+                  { label: 'Sq.Ft', value: stats.area },
+                ].map(stat => (
+                  <div key={stat.label}>
+                    <div style={{ color: '#00c8ff', fontSize: isMobile ? '12px' : '14px', fontWeight: '600' }}>{stat.value}</div>
+                    <div style={{ color: '#4a6070', fontSize: '8px' }}>{stat.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
