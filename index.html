@@ -8091,9 +8091,13 @@ function FloorPlanPro() {
           )}
           
           {/* Door Editor Panel */}
-          {showDoorWindowEditor && selectedItems[0]?.type === 'door' && !editorsMinimized && (
+          {showDoorWindowEditor && selectedItems[0]?.type === 'door' && !editorsMinimized && (() => {
+            const door = door;
+            const doorWidthInches = Math.round((door.width || 72) / (GRID_SIZE / 6));
+
+            return (
             <div
-              key={`door-editor-${selectedItems[0].item.id}`}
+              key={`door-editor-${door.id}`}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
@@ -8119,20 +8123,20 @@ function FloorPlanPro() {
                   <button onClick={() => { setShowDoorWindowEditor(false); setSelectedItems([]); }} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer', fontSize: '18px', padding: '4px' }}>×</button>
                 </div>
               </div>
-              
+
               <div style={{ marginBottom: '10px' }}>
                 <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Door Type</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
                   {DOOR_TYPES.map(dtype => (
                     <button
                       key={dtype.id}
-                      onClick={() => updateDoor(selectedItems[0].item.id, { type: dtype.id, width: dtype.defaultWidth * (GRID_SIZE / 6) })}
+                      onClick={() => updateDoor(door.id, { type: dtype.id, width: dtype.defaultWidth * (GRID_SIZE / 6) })}
                       style={{
                         padding: '6px 4px',
-                        background: selectedItems[0].item.type === dtype.id ? 'rgba(0,200,255,0.2)' : 'transparent',
-                        border: `1px solid ${selectedItems[0].item.type === dtype.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        background: door.type === dtype.id ? 'rgba(0,200,255,0.2)' : 'transparent',
+                        border: `1px solid ${door.type === dtype.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
                         borderRadius: '4px',
-                        color: selectedItems[0].item.type === dtype.id ? '#00c8ff' : '#8899aa',
+                        color: door.type === dtype.id ? '#00c8ff' : '#8899aa',
                         fontSize: '9px',
                         cursor: 'pointer',
                       }}
@@ -8142,11 +8146,11 @@ function FloorPlanPro() {
                   ))}
                 </div>
               </div>
-              
+
               <InputField
                 label="Width (inches)"
-                value={Math.round((selectedItems[0].item.width || 72) / (GRID_SIZE / 6))}
-                onChange={(val) => updateDoor(selectedItems[0].item.id, { width: (parseInt(val) || 36) * (GRID_SIZE / 6) })}
+                value={doorWidthInches}
+                onChange={(val) => updateDoor(door.id, { width: (parseInt(val) || 36) * (GRID_SIZE / 6) })}
                 type="number"
                 min={12}
                 step={1}
@@ -8158,14 +8162,14 @@ function FloorPlanPro() {
                   {['left', 'right', 'both'].map(swing => (
                     <button
                       key={swing}
-                      onClick={() => updateDoor(selectedItems[0].item.id, { swing })}
+                      onClick={() => updateDoor(door.id, { swing })}
                       style={{
                         flex: 1,
                         padding: '6px',
-                        background: selectedItems[0].item.swing === swing ? 'rgba(0,200,255,0.2)' : 'transparent',
-                        border: `1px solid ${selectedItems[0].item.swing === swing ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        background: door.swing === swing ? 'rgba(0,200,255,0.2)' : 'transparent',
+                        border: `1px solid ${door.swing === swing ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
                         borderRadius: '4px',
-                        color: selectedItems[0].item.swing === swing ? '#00c8ff' : '#8899aa',
+                        color: door.swing === swing ? '#00c8ff' : '#8899aa',
                         fontSize: '9px',
                         cursor: 'pointer',
                         textTransform: 'capitalize',
@@ -8183,14 +8187,14 @@ function FloorPlanPro() {
                   {['inward', 'outward'].map(dir => (
                     <button
                       key={dir}
-                      onClick={() => updateDoor(selectedItems[0].item.id, { openDirection: dir })}
+                      onClick={() => updateDoor(door.id, { openDirection: dir })}
                       style={{
                         flex: 1,
                         padding: '6px',
-                        background: (selectedItems[0].item.openDirection || 'inward') === dir ? 'rgba(0,200,255,0.2)' : 'transparent',
-                        border: `1px solid ${(selectedItems[0].item.openDirection || 'inward') === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        background: (door.openDirection || 'inward') === dir ? 'rgba(0,200,255,0.2)' : 'transparent',
+                        border: `1px solid ${(door.openDirection || 'inward') === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
                         borderRadius: '4px',
-                        color: (selectedItems[0].item.openDirection || 'inward') === dir ? '#00c8ff' : '#8899aa',
+                        color: (door.openDirection || 'inward') === dir ? '#00c8ff' : '#8899aa',
                         fontSize: '9px',
                         cursor: 'pointer',
                         textTransform: 'capitalize',
@@ -8204,9 +8208,9 @@ function FloorPlanPro() {
               
               <button
                 onClick={() => {
-                  const currentSwing = selectedItems[0].item.swing || 'left';
+                  const currentSwing = door.swing || 'left';
                   const newSwing = currentSwing === 'left' ? 'right' : currentSwing === 'right' ? 'left' : 'both';
-                  updateDoor(selectedItems[0].item.id, { swing: newSwing });
+                  updateDoor(door.id, { swing: newSwing });
                 }}
                 style={{
                   width: '100%',
@@ -8225,10 +8229,10 @@ function FloorPlanPro() {
               
               <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(0,200,255,0.05)', borderRadius: '4px' }}>
                 <div style={{ color: '#00c8ff', fontSize: '11px' }}>
-                  {formatMeasurement(((selectedItems[0].item.width || 72) / (GRID_SIZE / 6) / 12).toFixed(1))} wide
+                  {formatMeasurement(((door.width || 72) / (GRID_SIZE / 6) / 12).toFixed(1))} wide
                 </div>
                 <div style={{ color: '#6080a0', fontSize: '9px', marginTop: '2px' }}>
-                  {DOOR_TYPES.find(d => d.id === selectedItems[0].item.type)?.description || 'Standard door'}
+                  {DOOR_TYPES.find(d => d.id === door.type)?.description || 'Standard door'}
                 </div>
               </div>
               
@@ -8239,7 +8243,7 @@ function FloorPlanPro() {
               {/* Delete Button */}
               <button
                 onClick={() => {
-                  updateActiveFloor(f => ({ ...f, doors: f.doors.filter(d => d.id !== selectedItems[0].item.id) }));
+                  updateActiveFloor(f => ({ ...f, doors: f.doors.filter(d => d.id !== door.id) }));
                   setSelectedItems([]);
                   setShowDoorWindowEditor(false);
                 }}
@@ -8364,12 +8368,18 @@ function FloorPlanPro() {
                 </div>
               )}
             </div>
-          )}
-          
+            );
+          })()}
+
           {/* Window Editor Panel */}
-          {showDoorWindowEditor && selectedItems[0]?.type === 'window' && !editorsMinimized && (
+          {showDoorWindowEditor && selectedItems[0]?.type === 'window' && !editorsMinimized && (() => {
             <div
-              key={`window-editor-${selectedItems[0].item.id}`}
+            const win = win;
+            const winWidthInches = Math.round((win.width || 48) / (GRID_SIZE / 6));
+            const winHeightInches = Math.round((win.height || 48) / (GRID_SIZE / 6));
+
+            return (
+              key={`window-editor-${win.id}`}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
@@ -8402,13 +8412,13 @@ function FloorPlanPro() {
                   {WINDOW_TYPES.map(wtype => (
                     <button
                       key={wtype.id}
-                      onClick={() => updateWindow(selectedItems[0].item.id, { type: wtype.id, width: wtype.defaultWidth * (GRID_SIZE / 6), height: wtype.defaultHeight * (GRID_SIZE / 6) })}
+                      onClick={() => updateWindow(win.id, { type: wtype.id, width: wtype.defaultWidth * (GRID_SIZE / 6), height: wtype.defaultHeight * (GRID_SIZE / 6) })}
                       style={{
                         padding: '6px 4px',
-                        background: selectedItems[0].item.type === wtype.id ? 'rgba(0,200,255,0.2)' : 'transparent',
-                        border: `1px solid ${selectedItems[0].item.type === wtype.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        background: win.type === wtype.id ? 'rgba(0,200,255,0.2)' : 'transparent',
+                        border: `1px solid ${win.type === wtype.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
                         borderRadius: '4px',
-                        color: selectedItems[0].item.type === wtype.id ? '#00c8ff' : '#8899aa',
+                        color: win.type === wtype.id ? '#00c8ff' : '#8899aa',
                         fontSize: '8px',
                         cursor: 'pointer',
                       }}
@@ -8421,8 +8431,8 @@ function FloorPlanPro() {
               
               <InputField
                 label="Width (inches)"
-                value={Math.round((selectedItems[0].item.width || 96) / (GRID_SIZE / 6))}
-                onChange={(val) => updateWindow(selectedItems[0].item.id, { width: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
+                value={Math.round((win.width || 96) / (GRID_SIZE / 6))}
+                onChange={(val) => updateWindow(win.id, { width: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
                 type="number"
                 min={6}
                 step={1}
@@ -8430,8 +8440,8 @@ function FloorPlanPro() {
               
               <InputField
                 label="Height (inches)"
-                value={Math.round((selectedItems[0].item.height || 96) / (GRID_SIZE / 6))}
-                onChange={(val) => updateWindow(selectedItems[0].item.id, { height: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
+                value={Math.round((win.height || 96) / (GRID_SIZE / 6))}
+                onChange={(val) => updateWindow(win.id, { height: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
                 type="number"
                 min={6}
                 step={1}
@@ -8439,8 +8449,8 @@ function FloorPlanPro() {
               
               <InputField
                 label="Sill Height from Floor (inches)"
-                value={selectedItems[0].item.sillHeight || 36}
-                onChange={(val) => updateWindow(selectedItems[0].item.id, { sillHeight: parseInt(val) || 36 })}
+                value={win.sillHeight || 36}
+                onChange={(val) => updateWindow(win.id, { sillHeight: parseInt(val) || 36 })}
                 type="number"
                 min={0}
                 step={1}
@@ -8449,13 +8459,13 @@ function FloorPlanPro() {
               <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(0,200,255,0.05)', borderRadius: '4px' }}>
                 <div style={{ color: '#6080a0', fontSize: '9px', marginBottom: '4px' }}>Window Info</div>
                 <div style={{ color: '#00c8ff', fontSize: '11px' }}>
-                  {formatMeasurement(((selectedItems[0].item.width || 96) / (GRID_SIZE / 6) / 12).toFixed(1))} W × {formatMeasurement(((selectedItems[0].item.height || 96) / (GRID_SIZE / 6) / 12).toFixed(1))} H
+                  {formatMeasurement(((win.width || 96) / (GRID_SIZE / 6) / 12).toFixed(1))} W × {formatMeasurement(((win.height || 96) / (GRID_SIZE / 6) / 12).toFixed(1))} H
                 </div>
                 <div style={{ color: '#6080a0', fontSize: '9px', marginTop: '2px' }}>
-                  Sill at {formatMeasurement(((selectedItems[0].item.sillHeight || 36) / 12).toFixed(1))} from floor
+                  Sill at {formatMeasurement(((win.sillHeight || 36) / 12).toFixed(1))} from floor
                 </div>
                 <div style={{ color: '#6080a0', fontSize: '9px', marginTop: '2px' }}>
-                  {WINDOW_TYPES.find(w => w.id === selectedItems[0].item.type)?.description || 'Standard window'}
+                  {WINDOW_TYPES.find(w => w.id === win.type)?.description || 'Standard window'}
                 </div>
               </div>
               
@@ -8466,7 +8476,7 @@ function FloorPlanPro() {
               {/* Delete Button */}
               <button
                 onClick={() => {
-                  updateActiveFloor(f => ({ ...f, windows: f.windows.filter(w => w.id !== selectedItems[0].item.id) }));
+                  updateActiveFloor(f => ({ ...f, windows: f.windows.filter(w => w.id !== win.id) }));
                   setSelectedItems([]);
                   setShowDoorWindowEditor(false);
                 }}
@@ -8591,7 +8601,8 @@ function FloorPlanPro() {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
           
           {/* Furniture Editor Panel */}
           {selectedItems[0]?.type === 'furniture' && !editorsMinimized && (
