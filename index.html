@@ -8145,11 +8145,12 @@ function FloorPlanPro() {
               
               <InputField
                 label="Width (inches)"
-                value={Math.round((selectedItems[0].item.width || 72) / (GRID_SIZE / 6))}
+                value={selectedItems[0].item.width ? Math.round(selectedItems[0].item.width / (GRID_SIZE / 6)) : 36}
                 onChange={(val) => updateDoor(selectedItems[0].item.id, { width: (parseInt(val) || 36) * (GRID_SIZE / 6) })}
                 type="number"
                 min={12}
                 step={1}
+                key={`door-width-${selectedItems[0].item.id}`}
               />
               
               <div style={{ marginBottom: '10px' }}>
@@ -8421,19 +8422,21 @@ function FloorPlanPro() {
               
               <InputField
                 label="Width (inches)"
-                value={Math.round((selectedItems[0].item.width || 96) / (GRID_SIZE / 6))}
+                value={selectedItems[0].item.width ? Math.round(selectedItems[0].item.width / (GRID_SIZE / 6)) : 48}
                 onChange={(val) => updateWindow(selectedItems[0].item.id, { width: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
                 type="number"
                 min={6}
                 step={1}
+                key={`window-width-${selectedItems[0].item.id}`}
               />
-              
+
               <InputField
                 label="Height (inches)"
-                value={Math.round((selectedItems[0].item.height || 96) / (GRID_SIZE / 6))}
+                value={selectedItems[0].item.height ? Math.round(selectedItems[0].item.height / (GRID_SIZE / 6)) : 48}
                 onChange={(val) => updateWindow(selectedItems[0].item.id, { height: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
                 type="number"
                 min={6}
+                key={`window-height-${selectedItems[0].item.id}`}
                 step={1}
               />
               
