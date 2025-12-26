@@ -6665,16 +6665,21 @@ function FloorPlanPro() {
   
   const InputField = ({ label, value, onChange, suffix, type = 'text', min, max, step }) => {
     const inputRef = React.useRef(null);
+    const focusedRef = React.useRef(false);
     const [localValue, setLocalValue] = React.useState(value);
     const [isFocused, setIsFocused] = React.useState(false);
-    const focusedRef = React.useRef(false);
 
-    // Update local value when external value changes, but only if not focused
+    // Initialize local value on mount
     React.useEffect(() => {
-      if (!focusedRef.current && !isFocused) {
+      setLocalValue(value);
+    }, []);
+
+    // Update local value when external value changes, but NEVER when focused
+    React.useEffect(() => {
+      if (!focusedRef.current) {
         setLocalValue(value);
       }
-    }, [value, isFocused]);
+    }, [value]);
     
     const handleContainerTouch = (e) => {
       e.stopPropagation();
@@ -6723,7 +6728,7 @@ function FloorPlanPro() {
             ref={inputRef}
             type={type}
             inputMode={type === 'number' ? 'decimal' : 'text'}
-            value={isFocused ? localValue : value}
+            value={localValue}
             onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
@@ -8087,7 +8092,8 @@ function FloorPlanPro() {
           
           {/* Door Editor Panel */}
           {showDoorWindowEditor && selectedItems[0]?.type === 'door' && !editorsMinimized && (
-            <div 
+            <div
+              key={`door-editor-${selectedItems[0].item.id}`}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
@@ -8362,7 +8368,8 @@ function FloorPlanPro() {
           
           {/* Window Editor Panel */}
           {showDoorWindowEditor && selectedItems[0]?.type === 'window' && !editorsMinimized && (
-            <div 
+            <div
+              key={`window-editor-${selectedItems[0].item.id}`}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
               onTouchEnd={(e) => e.stopPropagation()}
