@@ -6666,6 +6666,7 @@ function FloorPlanPro() {
   const InputField = ({ label, value, onChange, suffix, type = 'text', min, max, step }) => {
     const inputRef = React.useRef(null);
     const focusedRef = React.useRef(false);
+    const justFocusedRef = React.useRef(false);
     const [localValue, setLocalValue] = React.useState(value);
     const [isFocused, setIsFocused] = React.useState(false);
 
@@ -6680,11 +6681,11 @@ function FloorPlanPro() {
         setLocalValue(value);
       }
     }, [value]);
-    
+
     const handleContainerTouch = (e) => {
       e.stopPropagation();
     };
-    
+
     const handleChange = (e) => {
       const newValue = e.target.value;
       setLocalValue(newValue);
@@ -6694,16 +6695,32 @@ function FloorPlanPro() {
     const handleFocus = (e) => {
       e.stopPropagation();
       focusedRef.current = true;
+      justFocusedRef.current = true;
       setIsFocused(true);
+
+      // Prevent blur for 300ms after focus (Android Chrome bug workaround)
+      setTimeout(() => {
+        justFocusedRef.current = false;
+      }, 300);
+
       // Select all text on focus for easier editing
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.select();
         }
-      }, 10);
+      }, 50);
     };
 
     const handleBlur = () => {
+      // CRITICAL: Ignore blur if we just focused (Android Chrome immediate blur bug)
+      if (justFocusedRef.current) {
+        // Re-focus the input
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+        return;
+      }
+
       // Delay blur to prevent keyboard from closing on Android
       setTimeout(() => {
         focusedRef.current = false;
