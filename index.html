@@ -766,7 +766,7 @@ const MeasurementInput = React.memo(({ label, value, onChange, units, formatMeas
       <input
         ref={inputRef}
         type="text"
-        inputMode="decimal"
+        inputMode={units === 'feetInches' ? 'text' : 'decimal'}
         value={inputValue}
         onChange={handleChange}
         onBlur={handleBlur}
@@ -6667,10 +6667,11 @@ function FloorPlanPro() {
     const inputRef = React.useRef(null);
     const [localValue, setLocalValue] = React.useState(value);
     const [isFocused, setIsFocused] = React.useState(false);
-    
+    const focusedRef = React.useRef(false);
+
     // Update local value when external value changes, but only if not focused
     React.useEffect(() => {
-      if (!isFocused) {
+      if (!focusedRef.current && !isFocused) {
         setLocalValue(value);
       }
     }, [value, isFocused]);
@@ -6687,6 +6688,7 @@ function FloorPlanPro() {
 
     const handleFocus = (e) => {
       e.stopPropagation();
+      focusedRef.current = true;
       setIsFocused(true);
       // Select all text on focus for easier editing
       setTimeout(() => {
@@ -6697,6 +6699,7 @@ function FloorPlanPro() {
     };
 
     const handleBlur = () => {
+      focusedRef.current = false;
       setIsFocused(false);
       // Call onChange only when user is done editing
       if (localValue !== value) {
