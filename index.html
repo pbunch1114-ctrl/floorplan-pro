@@ -9860,7 +9860,7 @@ function FloorPlanPro() {
           {/* Stats */}
           {viewMode !== 'paper' && viewMode !== '3d' && (
             <div style={{
-              position: 'absolute',
+              position: isMobile ? 'fixed' : 'absolute',
               bottom: isMobile ? '70px' : '12px',
               left: '12px',
               background: 'rgba(8,12,16,0.95)',
@@ -9868,7 +9868,7 @@ function FloorPlanPro() {
               borderRadius: '8px',
               padding: isMobile ? '8px 12px' : '10px 14px',
               backdropFilter: 'blur(10px)',
-              zIndex: 100,
+              zIndex: 500,
             }}>
               <div style={{ color: '#4a6070', fontSize: '8px', letterSpacing: '0.5px', marginBottom: '4px' }}>STATS</div>
               <div style={{ display: 'flex', gap: isMobile ? '8px' : '12px', flexWrap: 'wrap' }}>
