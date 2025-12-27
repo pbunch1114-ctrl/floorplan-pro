@@ -8162,15 +8162,31 @@ function FloorPlanPro() {
                 </div>
               </div>
               
-              <InputField
-                label="Width (inches)"
-                value={selectedItems[0].item.width ? Math.round(selectedItems[0].item.width / (GRID_SIZE / 6)) : 36}
-                onChange={(val) => updateDoor(selectedItems[0].item.id, { width: (parseInt(val) || 36) * (GRID_SIZE / 6) })}
-                type="number"
-                min={12}
-                step={1}
-                key={`door-width-${selectedItems[0].item.id}`}
-              />
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Width (inches)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={selectedItems[0].item.width ? Math.round(selectedItems[0].item.width / (GRID_SIZE / 6)) : 36}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '' || /^\d+$/.test(val)) {
+                      updateDoor(selectedItems[0].item.id, { width: (parseInt(val) || 36) * (GRID_SIZE / 6) });
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: '2px solid rgba(0,200,255,0.3)',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '16px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
               
               <div style={{ marginBottom: '10px' }}>
                 <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Swing Direction</label>
@@ -8439,25 +8455,57 @@ function FloorPlanPro() {
                 </div>
               </div>
               
-              <InputField
-                label="Width (inches)"
-                value={selectedItems[0].item.width ? Math.round(selectedItems[0].item.width / (GRID_SIZE / 6)) : 48}
-                onChange={(val) => updateWindow(selectedItems[0].item.id, { width: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
-                type="number"
-                min={6}
-                step={1}
-                key={`window-width-${selectedItems[0].item.id}`}
-              />
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Width (inches)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={selectedItems[0].item.width ? Math.round(selectedItems[0].item.width / (GRID_SIZE / 6)) : 48}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '' || /^\d+$/.test(val)) {
+                      updateWindow(selectedItems[0].item.id, { width: (parseInt(val) || 48) * (GRID_SIZE / 6) });
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: '2px solid rgba(0,200,255,0.3)',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '16px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
 
-              <InputField
-                label="Height (inches)"
-                value={selectedItems[0].item.height ? Math.round(selectedItems[0].item.height / (GRID_SIZE / 6)) : 48}
-                onChange={(val) => updateWindow(selectedItems[0].item.id, { height: (parseInt(val) || 48) * (GRID_SIZE / 6) })}
-                type="number"
-                min={6}
-                key={`window-height-${selectedItems[0].item.id}`}
-                step={1}
-              />
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Height (inches)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={selectedItems[0].item.height ? Math.round(selectedItems[0].item.height / (GRID_SIZE / 6)) : 48}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '' || /^\d+$/.test(val)) {
+                      updateWindow(selectedItems[0].item.id, { height: (parseInt(val) || 48) * (GRID_SIZE / 6) });
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: '2px solid rgba(0,200,255,0.3)',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    fontSize: '16px',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
               
               <InputField
                 label="Sill Height from Floor (inches)"
