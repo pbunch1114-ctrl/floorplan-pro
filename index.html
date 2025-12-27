@@ -6666,9 +6666,9 @@ function FloorPlanPro() {
   const InputField = ({ label, value, onChange, suffix, type = 'text', min, max, step }) => {
     const inputRef = React.useRef(null);
     const focusedRef = React.useRef(false);
-    const justFocusedRef = React.useRef(false);
     const [localValue, setLocalValue] = React.useState(value);
     const [isFocused, setIsFocused] = React.useState(false);
+    const [isReadOnly, setIsReadOnly] = React.useState(true);  // Samsung fix: start readOnly
 
     // Initialize local value on mount
     React.useEffect(() => {
@@ -6684,6 +6684,8 @@ function FloorPlanPro() {
 
     const handleContainerTouch = (e) => {
       e.stopPropagation();
+      // Samsung-specific: remove readOnly on any touch to the container
+      setIsReadOnly(false);
     };
 
     const handleChange = (e) => {
@@ -6693,15 +6695,11 @@ function FloorPlanPro() {
     };
 
     const handleFocus = (e) => {
+      e.preventDefault();
       e.stopPropagation();
+      setIsReadOnly(false);  // Ensure readOnly is removed
       focusedRef.current = true;
-      justFocusedRef.current = true;
       setIsFocused(true);
-
-      // Prevent blur for 300ms after focus (Android Chrome bug workaround)
-      setTimeout(() => {
-        justFocusedRef.current = false;
-      }, 300);
 
       // Select all text on focus for easier editing
       setTimeout(() => {
@@ -6711,20 +6709,15 @@ function FloorPlanPro() {
       }, 50);
     };
 
-    const handleBlur = () => {
-      // CRITICAL: Ignore blur if we just focused (Android Chrome immediate blur bug)
-      if (justFocusedRef.current) {
-        // Re-focus the input
-        if (inputRef.current) {
-          inputRef.current.focus();
-        }
-        return;
-      }
+    const handleBlur = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
 
       // Delay blur to prevent keyboard from closing on Android
       setTimeout(() => {
         focusedRef.current = false;
         setIsFocused(false);
+        setIsReadOnly(true);  // Set back to readOnly after blur
         // Call onChange only when user is done editing
         if (localValue !== value) {
           onChange(localValue);
@@ -6746,14 +6739,16 @@ function FloorPlanPro() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <input
             ref={inputRef}
-            type={type}
-            inputMode={type === 'number' ? 'decimal' : 'text'}
+            type="text"
+            inputMode={type === 'number' ? 'numeric' : 'text'}
+            readOnly={isReadOnly}
             value={localValue}
             onChange={handleChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
             onTouchStart={(e) => {
               e.stopPropagation();
+              setIsReadOnly(false);
             }}
             onTouchMove={(e) => e.stopPropagation()}
             onTouchEnd={(e) => {
