@@ -814,6 +814,7 @@ function FloorPlanPro() {
   const canvas3DRef = useRef(null);
   const containerRef = useRef(null);
   const paperCanvasRef = useRef(null);
+  const elevationCanvasRef = useRef(null);
   
   // Paper space zoom
   const [paperZoom, setPaperZoom] = useState(0.4);
@@ -897,7 +898,8 @@ function FloorPlanPro() {
   const [sheets, setSheets] = useState([]);
   const [activeSheetId, setActiveSheetId] = useState(null);
   const [showSheetsPanel, setShowSheetsPanel] = useState(false);
-  const [viewMode, setViewMode] = useState('model'); // 'model' or 'paper'
+  const [viewMode, setViewMode] = useState('model'); // 'model', 'paper', or 'elevations'
+  const [activeElevation, setActiveElevation] = useState('north'); // 'north', 'south', 'east', 'west'
   
   // Title block templates
   const TITLE_BLOCK_TEMPLATES = {
@@ -4051,7 +4053,205 @@ function FloorPlanPro() {
     ctx.fillText(activeSheet.sheetTitle || 'FLOOR PLAN', tbX + tbW/2, tbY + 133);
     
   }, [viewMode, activeSheet, activeFloor, paperZoom, projectInfo, formatMeasurement, resolveLinkPoint]);
-  
+
+  // ============================================================================
+  // ELEVATION RENDERING
+  // ============================================================================
+  useEffect(() => {
+    if (viewMode !== 'elevations' || !elevationCanvasRef.current) return;
+
+    const canvas = elevationCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const { width, height } = { width: canvas.width, height: canvas.height };
+
+    // Clear canvas
+    ctx.fillStyle = '#f0f0f0';
+    ctx.fillRect(0, 0, width, height);
+
+    // Get all walls from active floor
+    const walls = activeFloor.walls || [];
+    if (walls.length === 0) {
+      ctx.fillStyle = '#666';
+      ctx.font = '20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('No walls to display', width / 2, height / 2);
+      return;
+    }
+
+    // Determine which walls to show based on elevation direction
+    // For simplicity, we'll classify walls by their angle
+    const getWallAngle = (wall) => {
+      const dx = wall.x2 - wall.x1;
+      const dy = wall.y2 - wall.y1;
+      let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+      // Normalize to 0-360
+      if (angle < 0) angle += 360;
+      return angle;
+    };
+
+    const elevationWalls = walls.filter(wall => {
+      const angle = getWallAngle(wall);
+      // North elevation: show walls facing north (horizontal walls, top edge)
+      // We'll show walls that run east-west (angles near 0 or 180)
+      if (activeElevation === 'north') {
+        return (angle > 160 && angle < 200) || (angle > 340 || angle < 20);
+      }
+      // South elevation: opposite of north
+      else if (activeElevation === 'south') {
+        return (angle > 160 && angle < 200) || (angle > 340 || angle < 20);
+      }
+      // East elevation: show walls facing east (vertical walls, right edge)
+      // Walls that run north-south (angles near 90 or 270)
+      else if (activeElevation === 'east') {
+        return (angle > 70 && angle < 110) || (angle > 250 && angle < 290);
+      }
+      // West elevation: opposite of east
+      else if (activeElevation === 'west') {
+        return (angle > 70 && angle < 110) || (angle > 250 && angle < 290);
+      }
+      return false;
+    });
+
+    if (elevationWalls.length === 0) {
+      ctx.fillStyle = '#666';
+      ctx.font = '20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`No ${activeElevation} facing walls`, width / 2, height / 2);
+      return;
+    }
+
+    // Calculate bounds of elevation walls
+    let minX = Infinity, maxX = -Infinity;
+    elevationWalls.forEach(wall => {
+      minX = Math.min(minX, wall.x1, wall.x2);
+      maxX = Math.max(maxX, wall.x1, wall.x2);
+    });
+
+    const elevationWidth = maxX - minX;
+    const wallHeight = 120; // Default wall height in drawing units (10 feet = 120 inches)
+
+    // Scale to fit canvas with padding
+    const padding = 100;
+    const scaleX = (width - padding * 2) / elevationWidth;
+    const scaleY = (height - padding * 2) / wallHeight;
+    const elevScale = Math.min(scaleX, scaleY);
+
+    // Center the elevation
+    const offsetX = (width - elevationWidth * elevScale) / 2 - minX * elevScale;
+    const offsetY = height - padding;
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(elevScale, -elevScale); // Flip Y axis for proper elevation view
+
+    // Draw ground line
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2 / elevScale;
+    ctx.beginPath();
+    ctx.moveTo(minX - 50, 0);
+    ctx.lineTo(maxX + 50, 0);
+    ctx.stroke();
+
+    // Draw each wall as a rectangle in elevation
+    elevationWalls.forEach(wall => {
+      const wallLength = Math.sqrt(
+        Math.pow(wall.x2 - wall.x1, 2) + Math.pow(wall.y2 - wall.y1, 2)
+      );
+      const wallX = Math.min(wall.x1, wall.x2);
+
+      // Draw wall surface with siding pattern
+      ctx.fillStyle = wall.type === 'exterior' ? '#d4c5b0' : '#e8e8e8';
+      ctx.fillRect(wallX, 0, wallLength, wallHeight);
+
+      // Draw siding lines (horizontal)
+      if (wall.type === 'exterior') {
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 0.5 / elevScale;
+        const sidingSpacing = 6; // 6 inches between siding boards
+        for (let y = sidingSpacing; y < wallHeight; y += sidingSpacing) {
+          ctx.beginPath();
+          ctx.moveTo(wallX, y);
+          ctx.lineTo(wallX + wallLength, y);
+          ctx.stroke();
+        }
+      }
+
+      // Draw wall outline
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2 / elevScale;
+      ctx.strokeRect(wallX, 0, wallLength, wallHeight);
+
+      // Find and draw doors on this wall
+      const wallDoors = (activeFloor.doors || []).filter(door => door.wallId === wall.id);
+      wallDoors.forEach(door => {
+        const doorHeight = 84; // 7 feet = 84 inches
+        const doorWidth = door.width || 36;
+
+        // Calculate door position along wall
+        const doorPos = wallX + (door.position || 0.5) * wallLength - doorWidth / 2;
+
+        // Draw door
+        ctx.fillStyle = '#8b7355';
+        ctx.fillRect(doorPos, 0, doorWidth, doorHeight);
+
+        // Door panels (simple representation)
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1 / elevScale;
+        ctx.strokeRect(doorPos, 0, doorWidth, doorHeight);
+        ctx.strokeRect(doorPos + 2, 2, doorWidth - 4, doorHeight - 4);
+
+        // Door handle
+        ctx.fillStyle = '#666';
+        ctx.beginPath();
+        ctx.arc(doorPos + doorWidth - 6, doorHeight / 2, 2 / elevScale, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Find and draw windows on this wall
+      const wallWindows = (activeFloor.windows || []).filter(window => window.wallId === wall.id);
+      wallWindows.forEach(window => {
+        const windowHeight = window.height || 48;
+        const windowWidth = window.width || 48;
+        const sillHeight = window.sillHeight || 36;
+
+        // Calculate window position along wall
+        const windowPos = wallX + (window.position || 0.5) * wallLength - windowWidth / 2;
+
+        // Draw window
+        ctx.fillStyle = '#a8d8ea';
+        ctx.fillRect(windowPos, sillHeight, windowWidth, windowHeight);
+
+        // Window frame
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 2 / elevScale;
+        ctx.strokeRect(windowPos, sillHeight, windowWidth, windowHeight);
+
+        // Window panes (divided into 4 panes)
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1 / elevScale;
+        ctx.beginPath();
+        ctx.moveTo(windowPos + windowWidth / 2, sillHeight);
+        ctx.lineTo(windowPos + windowWidth / 2, sillHeight + windowHeight);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(windowPos, sillHeight + windowHeight / 2);
+        ctx.lineTo(windowPos + windowWidth, sillHeight + windowHeight / 2);
+        ctx.stroke();
+      });
+    });
+
+    ctx.restore();
+
+    // Draw elevation label
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${activeElevation.toUpperCase()} ELEVATION`, width / 2, 40);
+
+  }, [viewMode, activeElevation, activeFloor]);
+
   // Reset drawing states when tool changes
   const prevToolRef = useRef(tool);
   useEffect(() => {
@@ -9142,7 +9342,7 @@ function FloorPlanPro() {
                     fontWeight: viewMode === 'model' ? '600' : '400',
                   }}
                 >
-                  🏗️ Model Space
+                  🏗️ Model
                 </button>
                 <button
                   onClick={() => {
@@ -9163,7 +9363,23 @@ function FloorPlanPro() {
                     fontWeight: viewMode === 'paper' ? '600' : '400',
                   }}
                 >
-                  📄 Paper Space
+                  📄 Paper
+                </button>
+                <button
+                  onClick={() => setViewMode('elevations')}
+                  style={{
+                    flex: 1,
+                    padding: '8px',
+                    background: viewMode === 'elevations' ? 'rgba(0,200,255,0.2)' : 'transparent',
+                    border: `1px solid ${viewMode === 'elevations' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '4px',
+                    color: viewMode === 'elevations' ? '#00c8ff' : '#6080a0',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    fontWeight: viewMode === 'elevations' ? '600' : '400',
+                  }}
+                >
+                  🏠 Elevations
                 </button>
               </div>
               
@@ -9461,7 +9677,98 @@ function FloorPlanPro() {
               </div>
             </div>
           )}
-          
+
+          {/* Elevations View */}
+          {viewMode === 'elevations' && (
+            <div style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: '#080c10',
+              zIndex: 500,
+              display: 'flex',
+              flexDirection: 'column',
+            }}>
+              {/* Elevations Toolbar */}
+              <div style={{
+                background: 'rgba(8,12,16,0.98)',
+                borderBottom: '1px solid rgba(0,200,255,0.2)',
+                padding: '8px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                flexShrink: 0,
+              }}>
+                <button
+                  onClick={() => setViewMode('model')}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'rgba(0,200,255,0.1)',
+                    border: '1px solid rgba(0,200,255,0.3)',
+                    borderRadius: '4px',
+                    color: '#00c8ff',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ← Back to Model Space
+                </button>
+
+                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                  🏠 Elevation Views
+                </span>
+
+                <div style={{ flex: 1 }} />
+
+                {/* Elevation Direction Controls */}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {['north', 'south', 'east', 'west'].map(dir => (
+                    <button
+                      key={dir}
+                      onClick={() => setActiveElevation(dir)}
+                      style={{
+                        padding: '6px 12px',
+                        background: activeElevation === dir ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${activeElevation === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: '4px',
+                        color: activeElevation === dir ? '#00c8ff' : '#6080a0',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        fontWeight: activeElevation === dir ? '600' : '400',
+                        textTransform: 'capitalize',
+                      }}
+                    >
+                      {dir}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Elevation Canvas */}
+              <div style={{
+                flex: 1,
+                overflow: 'hidden',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <canvas
+                  ref={elevationCanvasRef}
+                  width={1200}
+                  height={800}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* New File Confirmation Modal */}
           {showNewFileConfirm && (
             <div style={{
@@ -9858,7 +10165,7 @@ function FloorPlanPro() {
           )}
           
           {/* Stats */}
-          {viewMode !== 'paper' && viewMode !== '3d' && (
+          {viewMode === 'model' && (
             <div style={{
               position: isMobile ? 'fixed' : 'absolute',
               bottom: isMobile ? '70px' : '12px',
