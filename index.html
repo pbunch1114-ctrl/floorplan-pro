@@ -4067,7 +4067,7 @@ function FloorPlanPro() {
     const { width, height } = { width: canvas.width, height: canvas.height };
 
     // Clear canvas
-    ctx.fillStyle = '#f0f0f0';
+    ctx.fillStyle = '#f5f5f5';
     ctx.fillRect(0, 0, width, height);
 
     // Get all walls from active floor
@@ -4077,178 +4077,206 @@ function FloorPlanPro() {
       ctx.font = '20px Arial';
       ctx.textAlign = 'center';
       ctx.fillText('No walls to display', width / 2, height / 2);
+      ctx.font = '14px Arial';
+      ctx.fillText('Draw some walls in Model Space first', width / 2, height / 2 + 30);
       return;
     }
 
-    // Determine which walls to show based on elevation direction
-    // For simplicity, we'll classify walls by their angle
-    const getWallAngle = (wall) => {
-      const dx = wall.x2 - wall.x1;
-      const dy = wall.y2 - wall.y1;
-      let angle = Math.atan2(dy, dx) * 180 / Math.PI;
-      // Normalize to 0-360
-      if (angle < 0) angle += 360;
-      return angle;
+    // Determine wall orientation - horizontal vs vertical
+    const isHorizontalWall = (wall) => {
+      if (!wall.start || !wall.end) return false;
+      const dx = Math.abs(wall.end.x - wall.start.x);
+      const dy = Math.abs(wall.end.y - wall.start.y);
+      return dx > dy; // Wall is more horizontal than vertical
     };
 
+    // Filter walls based on elevation direction
+    // North/South: horizontal walls, East/West: vertical walls
+    const isHorizontalElevation = activeElevation === 'north' || activeElevation === 'south';
+
     const elevationWalls = walls.filter(wall => {
-      const angle = getWallAngle(wall);
-      // North elevation: show walls facing north (horizontal walls, top edge)
-      // We'll show walls that run east-west (angles near 0 or 180)
-      if (activeElevation === 'north') {
-        return (angle > 160 && angle < 200) || (angle > 340 || angle < 20);
-      }
-      // South elevation: opposite of north
-      else if (activeElevation === 'south') {
-        return (angle > 160 && angle < 200) || (angle > 340 || angle < 20);
-      }
-      // East elevation: show walls facing east (vertical walls, right edge)
-      // Walls that run north-south (angles near 90 or 270)
-      else if (activeElevation === 'east') {
-        return (angle > 70 && angle < 110) || (angle > 250 && angle < 290);
-      }
-      // West elevation: opposite of east
-      else if (activeElevation === 'west') {
-        return (angle > 70 && angle < 110) || (angle > 250 && angle < 290);
-      }
-      return false;
+      if (!wall.start || !wall.end) return false;
+      return isHorizontalElevation ? isHorizontalWall(wall) : !isHorizontalWall(wall);
     });
 
     if (elevationWalls.length === 0) {
       ctx.fillStyle = '#666';
       ctx.font = '20px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(`No ${activeElevation} facing walls`, width / 2, height / 2);
+      ctx.fillText(`No ${activeElevation} facing walls found`, width / 2, height / 2);
+      ctx.font = '14px Arial';
+      ctx.fillText('Try a different direction or draw more walls', width / 2, height / 2 + 30);
       return;
     }
 
-    // Calculate bounds of elevation walls
-    let minX = Infinity, maxX = -Infinity;
+    // Calculate bounds - use X for horizontal walls, Y for vertical walls
+    let minPos = Infinity, maxPos = -Infinity;
     elevationWalls.forEach(wall => {
-      minX = Math.min(minX, wall.x1, wall.x2);
-      maxX = Math.max(maxX, wall.x1, wall.x2);
+      if (isHorizontalElevation) {
+        minPos = Math.min(minPos, wall.start.x, wall.end.x);
+        maxPos = Math.max(maxPos, wall.start.x, wall.end.x);
+      } else {
+        minPos = Math.min(minPos, wall.start.y, wall.end.y);
+        maxPos = Math.max(maxPos, wall.start.y, wall.end.y);
+      }
     });
 
-    const elevationWidth = maxX - minX;
-    const wallHeight = 120; // Default wall height in drawing units (10 feet = 120 inches)
+    const elevationWidth = maxPos - minPos;
+    // Wall height in same units as the grid (GRID_SIZE = 20 = 6 inches, so 10 feet = 200 units)
+    const wallHeight = 200; // ~10 feet in grid units
 
     // Scale to fit canvas with padding
-    const padding = 100;
-    const scaleX = (width - padding * 2) / elevationWidth;
-    const scaleY = (height - padding * 2) / wallHeight;
-    const elevScale = Math.min(scaleX, scaleY);
+    const padding = 80;
+    const availableWidth = width - padding * 2;
+    const availableHeight = height - padding * 2;
+    const scaleX = availableWidth / Math.max(elevationWidth, 1);
+    const scaleY = availableHeight / wallHeight;
+    const elevScale = Math.min(scaleX, scaleY, 3); // Cap max scale
 
-    // Center the elevation
-    const offsetX = (width - elevationWidth * elevScale) / 2 - minX * elevScale;
-    const offsetY = height - padding;
+    // Center offset
+    const scaledWidth = elevationWidth * elevScale;
+    const scaledHeight = wallHeight * elevScale;
+    const offsetX = (width - scaledWidth) / 2;
+    const offsetY = height - padding - 20; // Ground line position
 
-    ctx.save();
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(elevScale, -elevScale); // Flip Y axis for proper elevation view
+    // Draw title
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${activeElevation.toUpperCase()} ELEVATION`, width / 2, 35);
 
     // Draw ground line
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2 / elevScale;
+    ctx.strokeStyle = '#654321';
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(minX - 50, 0);
-    ctx.lineTo(maxX + 50, 0);
+    ctx.moveTo(padding / 2, offsetY);
+    ctx.lineTo(width - padding / 2, offsetY);
     ctx.stroke();
 
-    // Draw each wall as a rectangle in elevation
+    // Draw ground texture
+    ctx.fillStyle = '#8B7355';
+    ctx.fillRect(padding / 2, offsetY, width - padding, 15);
+
+    // Draw each wall
     elevationWalls.forEach(wall => {
       const wallLength = Math.sqrt(
-        Math.pow(wall.x2 - wall.x1, 2) + Math.pow(wall.y2 - wall.y1, 2)
+        Math.pow(wall.end.x - wall.start.x, 2) + Math.pow(wall.end.y - wall.start.y, 2)
       );
-      const wallX = Math.min(wall.x1, wall.x2);
 
-      // Draw wall surface with siding pattern
-      ctx.fillStyle = wall.type === 'exterior' ? '#d4c5b0' : '#e8e8e8';
-      ctx.fillRect(wallX, 0, wallLength, wallHeight);
+      // Calculate wall X position on the elevation
+      let wallStartPos;
+      if (isHorizontalElevation) {
+        wallStartPos = Math.min(wall.start.x, wall.end.x);
+      } else {
+        wallStartPos = Math.min(wall.start.y, wall.end.y);
+      }
 
-      // Draw siding lines (horizontal)
+      const wallX = offsetX + (wallStartPos - minPos) * elevScale;
+      const wallW = wallLength * elevScale;
+      const wallH = wallHeight * elevScale;
+      const wallY = offsetY - wallH;
+
+      // Draw wall fill
+      ctx.fillStyle = wall.type === 'exterior' ? '#d4c5b0' : '#e8e0d5';
+      ctx.fillRect(wallX, wallY, wallW, wallH);
+
+      // Draw siding pattern for exterior walls
       if (wall.type === 'exterior') {
-        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-        ctx.lineWidth = 0.5 / elevScale;
-        const sidingSpacing = 6; // 6 inches between siding boards
-        for (let y = sidingSpacing; y < wallHeight; y += sidingSpacing) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+        ctx.lineWidth = 1;
+        const sidingSpacing = 12; // pixels
+        for (let y = wallY + sidingSpacing; y < offsetY; y += sidingSpacing) {
           ctx.beginPath();
           ctx.moveTo(wallX, y);
-          ctx.lineTo(wallX + wallLength, y);
+          ctx.lineTo(wallX + wallW, y);
           ctx.stroke();
         }
       }
 
       // Draw wall outline
       ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2 / elevScale;
-      ctx.strokeRect(wallX, 0, wallLength, wallHeight);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(wallX, wallY, wallW, wallH);
 
-      // Find and draw doors on this wall
+      // Draw doors on this wall
       const wallDoors = (activeFloor.doors || []).filter(door => door.wallId === wall.id);
       wallDoors.forEach(door => {
-        const doorHeight = 84; // 7 feet = 84 inches
-        const doorWidth = door.width || 36;
+        const doorWidthPx = (door.width || 36) * elevScale;
+        const doorHeightPx = 140 * elevScale; // ~7 feet door height
+        const doorPosRatio = door.position || 0.5;
+        const doorX = wallX + doorPosRatio * wallW - doorWidthPx / 2;
+        const doorY = offsetY - doorHeightPx;
 
-        // Calculate door position along wall
-        const doorPos = wallX + (door.position || 0.5) * wallLength - doorWidth / 2;
+        // Door frame
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
 
-        // Draw door
-        ctx.fillStyle = '#8b7355';
-        ctx.fillRect(doorPos, 0, doorWidth, doorHeight);
+        // Door panel detail
+        ctx.strokeStyle = '#5d3a1a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(doorX + 4, doorY + 4, doorWidthPx - 8, doorHeightPx - 8);
 
-        // Door panels (simple representation)
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1 / elevScale;
-        ctx.strokeRect(doorPos, 0, doorWidth, doorHeight);
-        ctx.strokeRect(doorPos + 2, 2, doorWidth - 4, doorHeight - 4);
+        // Door panels
+        const panelW = (doorWidthPx - 16) / 2;
+        const panelH = (doorHeightPx - 20) / 2;
+        ctx.strokeRect(doorX + 6, doorY + 8, panelW, panelH);
+        ctx.strokeRect(doorX + 8 + panelW, doorY + 8, panelW, panelH);
+        ctx.strokeRect(doorX + 6, doorY + 12 + panelH, panelW, panelH);
+        ctx.strokeRect(doorX + 8 + panelW, doorY + 12 + panelH, panelW, panelH);
 
         // Door handle
-        ctx.fillStyle = '#666';
+        ctx.fillStyle = '#c0a000';
         ctx.beginPath();
-        ctx.arc(doorPos + doorWidth - 6, doorHeight / 2, 2 / elevScale, 0, Math.PI * 2);
+        ctx.arc(doorX + doorWidthPx - 12, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
         ctx.fill();
       });
 
-      // Find and draw windows on this wall
-      const wallWindows = (activeFloor.windows || []).filter(window => window.wallId === wall.id);
-      wallWindows.forEach(window => {
-        const windowHeight = window.height || 48;
-        const windowWidth = window.width || 48;
-        const sillHeight = window.sillHeight || 36;
+      // Draw windows on this wall
+      const wallWindows = (activeFloor.windows || []).filter(win => win.wallId === wall.id);
+      wallWindows.forEach(win => {
+        const winWidthPx = (win.width || 48) * elevScale;
+        const winHeightPx = (win.height || 48) * elevScale;
+        const sillHeightPx = (win.sillHeight || 36) * elevScale;
+        const winPosRatio = win.position || 0.5;
+        const winX = wallX + winPosRatio * wallW - winWidthPx / 2;
+        const winY = offsetY - sillHeightPx - winHeightPx;
 
-        // Calculate window position along wall
-        const windowPos = wallX + (window.position || 0.5) * wallLength - windowWidth / 2;
+        // Window frame (white/cream)
+        ctx.fillStyle = '#f0f8ff';
+        ctx.fillRect(winX, winY, winWidthPx, winHeightPx);
 
-        // Draw window
-        ctx.fillStyle = '#a8d8ea';
-        ctx.fillRect(windowPos, sillHeight, windowWidth, windowHeight);
+        // Glass reflection effect
+        ctx.fillStyle = 'rgba(135, 206, 250, 0.3)';
+        ctx.fillRect(winX + 2, winY + 2, winWidthPx - 4, winHeightPx - 4);
 
-        // Window frame
+        // Window frame outline
         ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2 / elevScale;
-        ctx.strokeRect(windowPos, sillHeight, windowWidth, windowHeight);
+        ctx.lineWidth = 2;
+        ctx.strokeRect(winX, winY, winWidthPx, winHeightPx);
 
-        // Window panes (divided into 4 panes)
+        // Window muntins (cross pattern)
         ctx.strokeStyle = '#666';
-        ctx.lineWidth = 1 / elevScale;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(windowPos + windowWidth / 2, sillHeight);
-        ctx.lineTo(windowPos + windowWidth / 2, sillHeight + windowHeight);
+        ctx.moveTo(winX + winWidthPx / 2, winY);
+        ctx.lineTo(winX + winWidthPx / 2, winY + winHeightPx);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(windowPos, sillHeight + windowHeight / 2);
-        ctx.lineTo(windowPos + windowWidth, sillHeight + windowHeight / 2);
+        ctx.moveTo(winX, winY + winHeightPx / 2);
+        ctx.lineTo(winX + winWidthPx, winY + winHeightPx / 2);
         ctx.stroke();
+
+        // Window sill
+        ctx.fillStyle = '#ddd';
+        ctx.fillRect(winX - 4, winY + winHeightPx, winWidthPx + 8, 6);
       });
     });
 
-    ctx.restore();
-
-    // Draw elevation label
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 24px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${activeElevation.toUpperCase()} ELEVATION`, width / 2, 40);
+    // Draw scale reference
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Scale: 1 grid = 6"`, 10, height - 10);
 
   }, [viewMode, activeElevation, activeFloor]);
 
