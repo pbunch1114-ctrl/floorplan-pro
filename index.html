@@ -2212,10 +2212,10 @@ function FloorPlanPro() {
         }
         return;
       }
-      
+
       const snapPoint = findNearestSnapPoint(pos, 25 / scale);
       const targetPoint = snapPoint || snappedPos;
-      
+
       if (!rotateCenter) {
         // First click - set rotation center
         setRotateCenter(targetPoint);
@@ -2236,8 +2236,245 @@ function FloorPlanPro() {
         setRotatePreviewAngle(null);
         setTool('select');
       }
+    } else if (tool === 'extend') {
+      // Extend tool - click on wall to extend it to meet another wall
+      // Find the wall closest to the click point
+      const walls = activeFloor.walls || [];
+      let clickedWall = null;
+      let clickedEndpoint = null; // 'start' or 'end'
+      let minDist = 30 / scale;
+
+      for (const wall of walls) {
+        const dStart = distance(pos, wall.start);
+        const dEnd = distance(pos, wall.end);
+        if (dStart < minDist) {
+          minDist = dStart;
+          clickedWall = wall;
+          clickedEndpoint = 'start';
+        }
+        if (dEnd < minDist) {
+          minDist = dEnd;
+          clickedWall = wall;
+          clickedEndpoint = 'end';
+        }
+      }
+
+      if (clickedWall && clickedEndpoint) {
+        // Find the nearest wall to extend to
+        const extendPoint = clickedEndpoint === 'start' ? clickedWall.start : clickedWall.end;
+        const wallDir = {
+          x: clickedWall.end.x - clickedWall.start.x,
+          y: clickedWall.end.y - clickedWall.start.y,
+        };
+        // Normalize direction
+        const wallLen = Math.sqrt(wallDir.x * wallDir.x + wallDir.y * wallDir.y);
+        if (wallLen < 0.001) return;
+        wallDir.x /= wallLen;
+        wallDir.y /= wallLen;
+
+        // If extending from start, reverse direction
+        if (clickedEndpoint === 'start') {
+          wallDir.x = -wallDir.x;
+          wallDir.y = -wallDir.y;
+        }
+
+        // Find intersection with other walls
+        let bestIntersection = null;
+        let bestDist = Infinity;
+
+        for (const targetWall of walls) {
+          if (targetWall.id === clickedWall.id) continue;
+
+          // Line-line intersection
+          const x1 = extendPoint.x, y1 = extendPoint.y;
+          const x2 = extendPoint.x + wallDir.x * 10000, y2 = extendPoint.y + wallDir.y * 10000;
+          const x3 = targetWall.start.x, y3 = targetWall.start.y;
+          const x4 = targetWall.end.x, y4 = targetWall.end.y;
+
+          const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+          if (Math.abs(denom) < 0.001) continue;
+
+          const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+          const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+          // Check if intersection is in valid range (t > 0 for extension, 0 <= u <= 1 for on target wall)
+          if (t > 0.001 && u >= -0.01 && u <= 1.01) {
+            const ix = x1 + t * (x2 - x1);
+            const iy = y1 + t * (y2 - y1);
+            const dist = t * Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestIntersection = { x: ix, y: iy };
+            }
+          }
+        }
+
+        if (bestIntersection) {
+          // Update the wall endpoint to the intersection point
+          const updatedWalls = walls.map(w => {
+            if (w.id === clickedWall.id) {
+              if (clickedEndpoint === 'start') {
+                return { ...w, start: { x: snap(bestIntersection.x), y: snap(bestIntersection.y) } };
+              } else {
+                return { ...w, end: { x: snap(bestIntersection.x), y: snap(bestIntersection.y) } };
+              }
+            }
+            return w;
+          });
+
+          const newFloors = floors.map(f => {
+            if (f.id === activeFloorId) {
+              return { ...f, walls: updatedWalls };
+            }
+            return f;
+          });
+          setFloors(newFloors);
+          saveToHistory(newFloors);
+        }
+      }
+    } else if (tool === 'trim') {
+      // Trim tool - click on a wall segment to trim it at intersections
+      const walls = activeFloor.walls || [];
+
+      // Find wall under cursor
+      let clickedWall = null;
+      let clickedT = 0; // Position along wall (0-1)
+      let minDist = 15 / scale;
+
+      for (const wall of walls) {
+        const dx = wall.end.x - wall.start.x;
+        const dy = wall.end.y - wall.start.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 0.001) continue;
+
+        // Project point onto wall line
+        let t = ((pos.x - wall.start.x) * dx + (pos.y - wall.start.y) * dy) / (len * len);
+        t = Math.max(0, Math.min(1, t));
+
+        const closest = {
+          x: wall.start.x + t * dx,
+          y: wall.start.y + t * dy
+        };
+
+        const d = distance(pos, closest);
+        if (d < minDist) {
+          minDist = d;
+          clickedWall = wall;
+          clickedT = t;
+        }
+      }
+
+      if (clickedWall) {
+        // Find all intersections with other walls
+        const intersections = [];
+
+        for (const targetWall of walls) {
+          if (targetWall.id === clickedWall.id) continue;
+
+          const x1 = clickedWall.start.x, y1 = clickedWall.start.y;
+          const x2 = clickedWall.end.x, y2 = clickedWall.end.y;
+          const x3 = targetWall.start.x, y3 = targetWall.start.y;
+          const x4 = targetWall.end.x, y4 = targetWall.end.y;
+
+          const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+          if (Math.abs(denom) < 0.001) continue;
+
+          const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+          const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+          // Check if intersection is on both wall segments
+          if (t >= 0.01 && t <= 0.99 && u >= 0.01 && u <= 0.99) {
+            intersections.push({
+              t,
+              x: x1 + t * (x2 - x1),
+              y: y1 + t * (y2 - y1),
+            });
+          }
+        }
+
+        if (intersections.length > 0) {
+          // Sort intersections by t value
+          intersections.sort((a, b) => a.t - b.t);
+
+          // Find which segment the click was in
+          let segmentStart = 0;
+          let segmentEnd = 1;
+
+          for (let i = 0; i < intersections.length; i++) {
+            if (intersections[i].t > clickedT) {
+              segmentEnd = intersections[i].t;
+              break;
+            }
+            segmentStart = intersections[i].t;
+          }
+
+          // Delete the clicked segment by modifying the wall
+          // If clicked segment is at start or end, shorten the wall
+          // If in middle, we'd need to split (not implemented - just shorten to nearest intersection)
+
+          const dx = clickedWall.end.x - clickedWall.start.x;
+          const dy = clickedWall.end.y - clickedWall.start.y;
+
+          let updatedWalls;
+
+          if (segmentStart === 0) {
+            // Trim from start - move start point to first intersection
+            const newStart = {
+              x: snap(clickedWall.start.x + segmentEnd * dx),
+              y: snap(clickedWall.start.y + segmentEnd * dy),
+            };
+            updatedWalls = walls.map(w => {
+              if (w.id === clickedWall.id) {
+                return { ...w, start: newStart };
+              }
+              return w;
+            });
+          } else if (segmentEnd === 1) {
+            // Trim from end - move end point to last intersection
+            const newEnd = {
+              x: snap(clickedWall.start.x + segmentStart * dx),
+              y: snap(clickedWall.start.y + segmentStart * dy),
+            };
+            updatedWalls = walls.map(w => {
+              if (w.id === clickedWall.id) {
+                return { ...w, end: newEnd };
+              }
+              return w;
+            });
+          } else {
+            // Middle segment - remove the wall and create two new walls
+            const newWall1 = {
+              ...clickedWall,
+              id: generateId(),
+              end: {
+                x: snap(clickedWall.start.x + segmentStart * dx),
+                y: snap(clickedWall.start.y + segmentStart * dy),
+              },
+            };
+            const newWall2 = {
+              ...clickedWall,
+              id: generateId(),
+              start: {
+                x: snap(clickedWall.start.x + segmentEnd * dx),
+                y: snap(clickedWall.start.y + segmentEnd * dy),
+              },
+            };
+            updatedWalls = walls.filter(w => w.id !== clickedWall.id).concat([newWall1, newWall2]);
+          }
+
+          const newFloors = floors.map(f => {
+            if (f.id === activeFloorId) {
+              return { ...f, walls: updatedWalls };
+            }
+            return f;
+          });
+          setFloors(newFloors);
+          saveToHistory(newFloors);
+        }
+      }
     }
-  }, [tool, getPointerPos, findNearestWall, findItemAt, measureStart, updateActiveFloor, plumbingLineType, plumbingLineStart, dimensionStyle, activeFloorId, floors, saveToHistory, showGrips, layers, scale, activeFloor, snap, lineStart, lineType, lineWeight, isDrawingPolyline, polylinePoints, hatchPattern, hatchScale, selectedItems, offset, moveBasePoint, rotateCenter, rotateStartAngle, findNearestSnapPoint, moveSelectedItems, rotateSelectedItems, editorsMinimized]);
+  }, [tool, getPointerPos, findNearestWall, findItemAt, measureStart, updateActiveFloor, plumbingLineType, plumbingLineStart, dimensionStyle, activeFloorId, floors, saveToHistory, showGrips, layers, scale, activeFloor, snap, lineStart, lineType, lineWeight, isDrawingPolyline, polylinePoints, hatchPattern, hatchScale, selectedItems, offset, moveBasePoint, rotateCenter, rotateStartAngle, findNearestSnapPoint, moveSelectedItems, rotateSelectedItems, editorsMinimized, generateId]);
   
   const handlePointerMove = useCallback((e) => {
     e.preventDefault();
@@ -7199,6 +7436,8 @@ function FloorPlanPro() {
                 { name: 'text', icon: 'T', label: 'Text' },
                 { name: 'measure', icon: '📏', label: 'Measure' },
                 { name: 'dimension', icon: '↔', label: 'Dimension' },
+                { name: 'extend', icon: '⟼', label: 'Extend' },
+                { name: 'trim', icon: '✂', label: 'Trim' },
                 { name: 'pan', icon: '✋', label: 'Pan' },
               ].map(t => (
                 <button
