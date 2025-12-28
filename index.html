@@ -2478,6 +2478,9 @@ function FloorPlanPro() {
       const walls = activeFloor.walls || [];
 
       // Find the two closest wall endpoints to the click point
+      // Use larger threshold on mobile for easier touch targeting
+      const maxDist = isMobile ? 80 / scale : 50 / scale;
+
       const endpoints = [];
       for (const wall of walls) {
         endpoints.push({ wall, endpoint: 'start', point: wall.start, dist: distance(pos, wall.start) });
@@ -2491,7 +2494,7 @@ function FloorPlanPro() {
       let wall2Info = null;
 
       for (const ep of endpoints) {
-        if (ep.dist > 50 / scale) break; // Too far away
+        if (ep.dist > maxDist) break; // Too far away
 
         if (!wall1Info) {
           wall1Info = ep;
@@ -2556,7 +2559,7 @@ function FloorPlanPro() {
         }
       }
     }
-  }, [tool, getPointerPos, findNearestWall, findItemAt, measureStart, updateActiveFloor, plumbingLineType, plumbingLineStart, dimensionStyle, activeFloorId, floors, saveToHistory, showGrips, layers, scale, activeFloor, snap, lineStart, lineType, lineWeight, isDrawingPolyline, polylinePoints, hatchPattern, hatchScale, selectedItems, offset, moveBasePoint, rotateCenter, rotateStartAngle, findNearestSnapPoint, moveSelectedItems, rotateSelectedItems, editorsMinimized, generateId]);
+  }, [tool, getPointerPos, findNearestWall, findItemAt, measureStart, updateActiveFloor, plumbingLineType, plumbingLineStart, dimensionStyle, activeFloorId, floors, saveToHistory, showGrips, layers, scale, activeFloor, snap, lineStart, lineType, lineWeight, isDrawingPolyline, polylinePoints, hatchPattern, hatchScale, selectedItems, offset, moveBasePoint, rotateCenter, rotateStartAngle, findNearestSnapPoint, moveSelectedItems, rotateSelectedItems, editorsMinimized, generateId, isMobile]);
 
   const handlePointerMove = useCallback((e) => {
     e.preventDefault();
