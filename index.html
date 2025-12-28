@@ -2473,9 +2473,91 @@ function FloorPlanPro() {
           saveToHistory(newFloors);
         }
       }
+    } else if (tool === 'corner') {
+      // Corner tool - click near where two walls should meet to clean up the corner
+      const walls = activeFloor.walls || [];
+
+      // Find the two closest wall endpoints to the click point
+      const endpoints = [];
+      for (const wall of walls) {
+        endpoints.push({ wall, endpoint: 'start', point: wall.start, dist: distance(pos, wall.start) });
+        endpoints.push({ wall, endpoint: 'end', point: wall.end, dist: distance(pos, wall.end) });
+      }
+
+      // Sort by distance and get the two closest from different walls
+      endpoints.sort((a, b) => a.dist - b.dist);
+
+      let wall1Info = null;
+      let wall2Info = null;
+
+      for (const ep of endpoints) {
+        if (ep.dist > 50 / scale) break; // Too far away
+
+        if (!wall1Info) {
+          wall1Info = ep;
+        } else if (ep.wall.id !== wall1Info.wall.id) {
+          wall2Info = ep;
+          break;
+        }
+      }
+
+      if (wall1Info && wall2Info) {
+        const wall1 = wall1Info.wall;
+        const wall2 = wall2Info.wall;
+
+        // Calculate the intersection point of the two wall lines (extended infinitely)
+        // Wall 1 line
+        const x1 = wall1.start.x, y1 = wall1.start.y;
+        const x2 = wall1.end.x, y2 = wall1.end.y;
+        // Wall 2 line
+        const x3 = wall2.start.x, y3 = wall2.start.y;
+        const x4 = wall2.end.x, y4 = wall2.end.y;
+
+        const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+
+        if (Math.abs(denom) > 0.001) { // Not parallel
+          const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+          const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+          // Calculate intersection point
+          const ix = x1 + t * (x2 - x1);
+          const iy = y1 + t * (y2 - y1);
+          const intersection = { x: snap(ix), y: snap(iy) };
+
+          // Update both walls to meet at the intersection
+          const updatedWalls = walls.map(w => {
+            if (w.id === wall1.id) {
+              // Extend/trim wall1's closest endpoint to intersection
+              if (wall1Info.endpoint === 'start') {
+                return { ...w, start: intersection };
+              } else {
+                return { ...w, end: intersection };
+              }
+            }
+            if (w.id === wall2.id) {
+              // Extend/trim wall2's closest endpoint to intersection
+              if (wall2Info.endpoint === 'start') {
+                return { ...w, start: intersection };
+              } else {
+                return { ...w, end: intersection };
+              }
+            }
+            return w;
+          });
+
+          const newFloors = floors.map(f => {
+            if (f.id === activeFloorId) {
+              return { ...f, walls: updatedWalls };
+            }
+            return f;
+          });
+          setFloors(newFloors);
+          saveToHistory(newFloors);
+        }
+      }
     }
   }, [tool, getPointerPos, findNearestWall, findItemAt, measureStart, updateActiveFloor, plumbingLineType, plumbingLineStart, dimensionStyle, activeFloorId, floors, saveToHistory, showGrips, layers, scale, activeFloor, snap, lineStart, lineType, lineWeight, isDrawingPolyline, polylinePoints, hatchPattern, hatchScale, selectedItems, offset, moveBasePoint, rotateCenter, rotateStartAngle, findNearestSnapPoint, moveSelectedItems, rotateSelectedItems, editorsMinimized, generateId]);
-  
+
   const handlePointerMove = useCallback((e) => {
     e.preventDefault();
     
@@ -7438,6 +7520,7 @@ function FloorPlanPro() {
                 { name: 'dimension', icon: '↔', label: 'Dimension' },
                 { name: 'extend', icon: '⟼', label: 'Extend' },
                 { name: 'trim', icon: '✂', label: 'Trim' },
+                { name: 'corner', icon: '⌐', label: 'Corner' },
                 { name: 'pan', icon: '✋', label: 'Pan' },
               ].map(t => (
                 <button
