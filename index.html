@@ -971,6 +971,9 @@ function FloorPlanPro() {
   
   // Wall detail level: 'simple', 'standard', 'detailed'
   const [wallDetailLevel, setWallDetailLevel] = useState('simple');
+
+  // Render mode: 'linework' (clean CAD style), 'realistic' (with textures/colors)
+  const [renderMode, setRenderMode] = useState('linework');
   
   // Get current grid size in pixels
   const currentGridSize = GRID_OPTIONS[gridSize]?.size || GRID_SIZE;
@@ -5260,111 +5263,248 @@ function FloorPlanPro() {
           // Detailed mode - full construction with patterns and studs
           const totalThickness = wallConfig.layers.reduce((sum, l) => sum + l.thickness, 0);
           const scaleFactor = thickness / totalThickness;
-          let yOffset = -thickness / 2;
 
-          // Calculate pattern offset based on wall's global position
-          // This makes patterns flow continuously across connected walls
-          const patternOffset = (wall.start.x + wall.start.y) % 48;
+          if (renderMode === 'linework') {
+            // LINE WORK MODE - Clean CAD-style drawing with hatches
+            // Draw wall as outline with layer divisions and CAD-standard hatches
 
-          // Draw each layer with patterns
-          wallConfig.layers.forEach(layer => {
-            const layerThickness = layer.thickness * scaleFactor;
+            // Background fill (white/light for paper-like appearance)
+            ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.1)' : '#1a1a1a';
+            ctx.fillRect(0, -thickness / 2, wallLength, thickness);
 
-            ctx.save();
-            ctx.translate(0, yOffset);
-
-            // Base fill
-            ctx.fillStyle = isSelected ? adjustColor(layer.color, 20) : layer.color;
-            ctx.fillRect(0, 0, wallLength, layerThickness);
-
-            // Draw pattern based on layer type
-            if (layer.pattern === 'siding') {
-              // Horizontal siding lines - offset based on global position for continuity
-              ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-              ctx.lineWidth = 0.5;
-              const lineSpacing = Math.max(1.5, layerThickness / 4);
-              for (let y = lineSpacing; y < layerThickness; y += lineSpacing) {
+            // Draw layer divisions as thin lines
+            let yOffset = -thickness / 2;
+            ctx.strokeStyle = isSelected ? '#00ffaa' : '#666';
+            ctx.lineWidth = 0.5;
+            wallConfig.layers.forEach((layer, i) => {
+              const layerThickness = layer.thickness * scaleFactor;
+              if (i > 0) {
                 ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(wallLength, y);
+                ctx.moveTo(0, yOffset);
+                ctx.lineTo(wallLength, yOffset);
                 ctx.stroke();
               }
-            } else if (layer.pattern === 'plywood') {
-              // Wood grain lines - use pattern offset for continuity at corners
-              ctx.strokeStyle = 'rgba(139,90,43,0.3)';
-              ctx.lineWidth = 0.5;
-              const plywoodSpacing = 24;
-              const startX = -((patternOffset) % plywoodSpacing);
-              for (let x = startX; x < wallLength; x += plywoodSpacing) {
-                if (x >= 0) {
+
+              // Draw CAD-standard hatches for each layer type
+              ctx.save();
+              ctx.beginPath();
+              ctx.rect(0, yOffset, wallLength, layerThickness);
+              ctx.clip();
+
+              if (layer.pattern === 'siding' || layer.pattern === 'plywood') {
+                // Diagonal hatch for wood/siding (45 degrees)
+                ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.4)' : 'rgba(100,100,100,0.5)';
+                ctx.lineWidth = 0.5;
+                const spacing = 4;
+                for (let x = -wallLength; x < wallLength * 2; x += spacing) {
+                  ctx.beginPath();
+                  ctx.moveTo(x, yOffset);
+                  ctx.lineTo(x + layerThickness, yOffset + layerThickness);
+                  ctx.stroke();
+                }
+              } else if (layer.pattern === 'insulation') {
+                // X-hatch for insulation
+                ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.3)' : 'rgba(100,100,100,0.4)';
+                ctx.lineWidth = 0.3;
+                const spacing = 6;
+                // Forward diagonal
+                for (let x = -wallLength; x < wallLength * 2; x += spacing) {
+                  ctx.beginPath();
+                  ctx.moveTo(x, yOffset);
+                  ctx.lineTo(x + layerThickness, yOffset + layerThickness);
+                  ctx.stroke();
+                }
+                // Back diagonal
+                for (let x = -wallLength; x < wallLength * 2; x += spacing) {
+                  ctx.beginPath();
+                  ctx.moveTo(x + layerThickness, yOffset);
+                  ctx.lineTo(x, yOffset + layerThickness);
+                  ctx.stroke();
+                }
+              } else if (layer.pattern === 'drywall') {
+                // Stipple/dots for drywall
+                ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.3)' : 'rgba(100,100,100,0.3)';
+                const spacing = 8;
+                for (let x = spacing/2; x < wallLength; x += spacing) {
+                  for (let dy = spacing/2; dy < layerThickness; dy += spacing) {
+                    ctx.beginPath();
+                    ctx.arc(x, yOffset + dy, 0.5, 0, Math.PI * 2);
+                    ctx.fill();
+                  }
+                }
+              } else if (layer.pattern === 'cavity') {
+                // Empty cavity - no fill
+              }
+
+              ctx.restore();
+              yOffset += layerThickness;
+            });
+
+            // Draw studs as simple rectangles with X inside
+            if (wallConfig.studs) {
+              const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
+              const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
+
+              let cavityStart = -thickness / 2;
+              let cavityThickness = 0;
+              wallConfig.layers.forEach(layer => {
+                const layerThick = layer.thickness * scaleFactor;
+                if (layer.pattern === 'cavity' || layer.pattern === 'insulation') {
+                  cavityThickness = layerThick;
+                } else if (cavityThickness === 0) {
+                  cavityStart += layerThick;
+                }
+              });
+
+              ctx.strokeStyle = isSelected ? '#00ffaa' : '#888';
+              ctx.lineWidth = 0.75;
+
+              // End studs
+              ctx.strokeRect(0, cavityStart, studWidth, cavityThickness);
+              ctx.strokeRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
+
+              // Interior studs
+              for (let x = studSpacing; x < wallLength - studWidth; x += studSpacing) {
+                ctx.strokeRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
+              }
+            }
+
+            // Wall outline
+            ctx.strokeStyle = isSelected ? '#00ffaa' : '#aaa';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(0, -thickness / 2, wallLength, thickness);
+
+          } else {
+            // REALISTIC MODE - Full color with textures
+            let yOffset = -thickness / 2;
+
+            // Draw each layer with realistic colors and patterns
+            wallConfig.layers.forEach(layer => {
+              const layerThickness = layer.thickness * scaleFactor;
+
+              ctx.save();
+              ctx.translate(0, yOffset);
+
+              // Base fill with realistic color
+              ctx.fillStyle = isSelected ? adjustColor(layer.color, 20) : layer.color;
+              ctx.fillRect(0, 0, wallLength, layerThickness);
+
+              // Draw pattern based on layer type
+              if (layer.pattern === 'siding') {
+                // Horizontal siding lines with shadow effect
+                ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+                ctx.lineWidth = 0.75;
+                const lineSpacing = Math.max(2, layerThickness / 3);
+                for (let y = lineSpacing; y < layerThickness; y += lineSpacing) {
+                  ctx.beginPath();
+                  ctx.moveTo(0, y);
+                  ctx.lineTo(wallLength, y);
+                  ctx.stroke();
+                  // Highlight below each line
+                  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                  ctx.beginPath();
+                  ctx.moveTo(0, y + 0.5);
+                  ctx.lineTo(wallLength, y + 0.5);
+                  ctx.stroke();
+                  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+                }
+              } else if (layer.pattern === 'plywood') {
+                // Wood grain with panel joints
+                ctx.strokeStyle = 'rgba(101,67,33,0.4)';
+                ctx.lineWidth = 0.5;
+                // Grain lines
+                for (let y = 2; y < layerThickness; y += 3) {
+                  ctx.beginPath();
+                  ctx.moveTo(0, y + Math.sin(y) * 0.5);
+                  ctx.lineTo(wallLength, y + Math.sin(y + wallLength * 0.01) * 0.5);
+                  ctx.stroke();
+                }
+                // Panel joints every 48" (4 feet)
+                ctx.strokeStyle = 'rgba(50,30,10,0.5)';
+                ctx.lineWidth = 1;
+                const panelWidth = 48 * (GRID_SIZE / 6) / 12;
+                for (let x = panelWidth; x < wallLength; x += panelWidth) {
                   ctx.beginPath();
                   ctx.moveTo(x, 0);
                   ctx.lineTo(x, layerThickness);
                   ctx.stroke();
                 }
+              } else if (layer.pattern === 'insulation') {
+                // Fluffy insulation texture
+                ctx.fillStyle = 'rgba(255,200,220,0.3)';
+                const blobSize = 4;
+                for (let x = 0; x < wallLength; x += blobSize * 1.5) {
+                  for (let y = 0; y < layerThickness; y += blobSize) {
+                    const offsetX = (y / blobSize % 2) * blobSize * 0.5;
+                    ctx.beginPath();
+                    ctx.arc(x + offsetX, y + blobSize/2, blobSize * 0.4, 0, Math.PI * 2);
+                    ctx.fill();
+                  }
+                }
+              } else if (layer.pattern === 'drywall') {
+                // Subtle texture for drywall
+                ctx.fillStyle = 'rgba(200,200,200,0.1)';
+                for (let x = 0; x < wallLength; x += 12) {
+                  for (let y = 0; y < layerThickness; y += 12) {
+                    ctx.fillRect(x, y, 1, 1);
+                  }
+                }
+              } else if (layer.pattern === 'cavity') {
+                // Dark cavity
+                ctx.fillStyle = isSelected ? '#2a2a2a' : '#0a0a0a';
+                ctx.fillRect(0, 0, wallLength, layerThickness);
               }
-            } else if (layer.pattern === 'insulation') {
-              // Wavy insulation pattern - use offset for continuity
-              ctx.strokeStyle = 'rgba(255,150,180,0.4)';
-              ctx.lineWidth = 1;
-              const waveHeight = layerThickness * 0.3;
-              const waveSpacing = 8;
-              const startX = -((patternOffset) % waveSpacing);
-              for (let x = startX; x < wallLength; x += waveSpacing) {
-                ctx.beginPath();
-                ctx.moveTo(Math.max(0, x), layerThickness / 2 - waveHeight);
-                ctx.quadraticCurveTo(x + 4, layerThickness / 2 + waveHeight, x + waveSpacing, layerThickness / 2 - waveHeight);
-                ctx.stroke();
-              }
-            } else if (layer.pattern === 'cavity') {
-              // Dark cavity with stud locations
-              ctx.fillStyle = isSelected ? '#3a3a3a' : '#1a1a1a';
-              ctx.fillRect(0, 0, wallLength, layerThickness);
-            }
 
-            ctx.restore();
-            yOffset += layerThickness;
-          });
-
-          // Draw studs in detailed mode - use offset for continuity at corners
-          if (wallConfig.studs) {
-            const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
-            const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
-            const studDepth = wallConfig.studs.depth * scaleFactor;
-
-            // Find the cavity layer position
-            let cavityStart = -thickness / 2;
-            let cavityThickness = 0;
-            wallConfig.layers.forEach(layer => {
-              const layerThick = layer.thickness * scaleFactor;
-              if (layer.pattern === 'cavity' || layer.pattern === 'insulation') {
-                cavityThickness = layerThick;
-              } else if (cavityThickness === 0) {
-                cavityStart += layerThick;
-              }
+              ctx.restore();
+              yOffset += layerThickness;
             });
 
-            // Draw studs with offset based on global position
-            ctx.fillStyle = isSelected ? '#E8C888' : wallConfig.studs.color;
-            const studStartOffset = (patternOffset % studSpacing);
+            // Draw studs in realistic mode
+            if (wallConfig.studs) {
+              const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
+              const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
 
-            // End stud at start
-            ctx.fillRect(0, cavityStart, studWidth, cavityThickness);
+              let cavityStart = -thickness / 2;
+              let cavityThickness = 0;
+              wallConfig.layers.forEach(layer => {
+                const layerThick = layer.thickness * scaleFactor;
+                if (layer.pattern === 'cavity' || layer.pattern === 'insulation') {
+                  cavityThickness = layerThick;
+                } else if (cavityThickness === 0) {
+                  cavityStart += layerThick;
+                }
+              });
 
-            // Interior studs - offset for continuity
-            const firstStudX = studSpacing - studStartOffset;
-            for (let x = firstStudX; x < wallLength - studWidth; x += studSpacing) {
-              ctx.fillRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
+              // Draw studs with wood grain
+              ctx.fillStyle = isSelected ? '#E8C888' : wallConfig.studs.color;
+
+              // End studs
+              ctx.fillRect(0, cavityStart, studWidth, cavityThickness);
+              ctx.fillRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
+
+              // Interior studs
+              for (let x = studSpacing; x < wallLength - studWidth; x += studSpacing) {
+                ctx.fillRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
+              }
+
+              // Wood grain on studs
+              ctx.strokeStyle = 'rgba(139,90,43,0.3)';
+              ctx.lineWidth = 0.5;
+              for (let x = studSpacing; x < wallLength - studWidth; x += studSpacing) {
+                for (let y = cavityStart + 2; y < cavityStart + cavityThickness; y += 3) {
+                  ctx.beginPath();
+                  ctx.moveTo(x - studWidth / 2, y);
+                  ctx.lineTo(x + studWidth / 2, y);
+                  ctx.stroke();
+                }
+              }
             }
 
-            // End stud at end
-            ctx.fillRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
+            // Wall outline
+            ctx.strokeStyle = isSelected ? '#00ffaa' : '#444';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(0, -thickness / 2, wallLength, thickness);
           }
-
-          // Draw outline
-          ctx.strokeStyle = isSelected ? '#00ffaa' : '#555';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(0, -thickness / 2, wallLength, thickness);
         }
         
         ctx.restore();
@@ -5423,8 +5563,87 @@ function FloorPlanPro() {
           ctx.stroke();
         }
       });
+
+      // Draw corner caps for detailed mode to clean up wall intersections
+      if (wallDetailLevel === 'detailed' || wallDetailLevel === 'standard') {
+        const walls = activeFloor.walls || [];
+        const cornerThreshold = 5; // How close endpoints need to be to form a corner
+
+        // Find all corner connections
+        walls.forEach((wall1, i) => {
+          walls.forEach((wall2, j) => {
+            if (i >= j) return; // Avoid duplicates
+
+            const thickness1 = WALL_THICKNESS_OPTIONS[wall1.type]?.thickness || 8;
+            const thickness2 = WALL_THICKNESS_OPTIONS[wall2.type]?.thickness || 8;
+            const maxThickness = Math.max(thickness1, thickness2);
+
+            // Check all endpoint combinations
+            const endpoints = [
+              { p1: wall1.start, p2: wall2.start },
+              { p1: wall1.start, p2: wall2.end },
+              { p1: wall1.end, p2: wall2.start },
+              { p1: wall1.end, p2: wall2.end },
+            ];
+
+            endpoints.forEach(({ p1, p2 }) => {
+              const dist = Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+              if (dist < cornerThreshold) {
+                // Found a corner - draw a corner cap
+                const cornerX = (p1.x + p2.x) / 2;
+                const cornerY = (p1.y + p2.y) / 2;
+
+                // Get wall configurations
+                const config1 = WALL_LAYERS[wall1.type] || WALL_LAYERS['interior'];
+                const config2 = WALL_LAYERS[wall2.type] || WALL_LAYERS['interior'];
+
+                if (wallDetailLevel === 'detailed' && renderMode === 'realistic') {
+                  // Realistic corner cap - use the outermost layer color
+                  const outerColor = config1.layers[0]?.color || '#8B7355';
+                  ctx.fillStyle = outerColor;
+                  ctx.beginPath();
+                  ctx.arc(cornerX, cornerY, maxThickness / 2 + 1, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  // Inner fill matching interior
+                  const innerColor = config1.layers[config1.layers.length - 1]?.color || '#E8E4DF';
+                  ctx.fillStyle = innerColor;
+                  ctx.beginPath();
+                  ctx.arc(cornerX, cornerY, maxThickness / 2 - 2, 0, Math.PI * 2);
+                  ctx.fill();
+                } else if (wallDetailLevel === 'detailed' && renderMode === 'linework') {
+                  // Line work corner cap - clean outline
+                  ctx.fillStyle = '#1a1a1a';
+                  ctx.beginPath();
+                  ctx.arc(cornerX, cornerY, maxThickness / 2 + 1, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  ctx.strokeStyle = '#aaa';
+                  ctx.lineWidth = 1.5;
+                  ctx.beginPath();
+                  ctx.arc(cornerX, cornerY, maxThickness / 2 + 1, 0, Math.PI * 2);
+                  ctx.stroke();
+                } else {
+                  // Standard mode corner cap
+                  const outerColor = config1.layers[0]?.color || '#8B7355';
+                  ctx.fillStyle = outerColor;
+                  ctx.beginPath();
+                  ctx.arc(cornerX, cornerY, maxThickness / 2, 0, Math.PI * 2);
+                  ctx.fill();
+
+                  ctx.strokeStyle = '#888';
+                  ctx.lineWidth = 1;
+                  ctx.beginPath();
+                  ctx.arc(cornerX, cornerY, maxThickness / 2, 0, Math.PI * 2);
+                  ctx.stroke();
+                }
+              }
+            });
+          });
+        });
+      }
     }
-    
+
     // Draw doors
     if (layers.doors.visible) {
     activeFloor.doors.forEach(door => {
@@ -9597,9 +9816,46 @@ function FloorPlanPro() {
                   </div>
                 </div>
               </div>
+
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '10px', marginTop: '10px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '6px' }}>Render Mode</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
+                  <button
+                    onClick={() => setRenderMode('linework')}
+                    style={{
+                      padding: '6px 4px',
+                      background: renderMode === 'linework' ? 'rgba(0,200,255,0.2)' : 'transparent',
+                      border: `1px solid ${renderMode === 'linework' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '4px',
+                      color: renderMode === 'linework' ? '#00c8ff' : '#8899aa',
+                      fontSize: '9px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Line Work
+                  </button>
+                  <button
+                    onClick={() => setRenderMode('realistic')}
+                    style={{
+                      padding: '6px 4px',
+                      background: renderMode === 'realistic' ? 'rgba(0,200,255,0.2)' : 'transparent',
+                      border: `1px solid ${renderMode === 'realistic' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '4px',
+                      color: renderMode === 'realistic' ? '#00c8ff' : '#8899aa',
+                      fontSize: '9px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Realistic
+                  </button>
+                </div>
+                <div style={{ color: '#6080a0', fontSize: '8px', marginTop: '6px' }}>
+                  {renderMode === 'linework' ? 'Clean CAD-style line drawings' : 'Textured walls with materials'}
+                </div>
+              </div>
             </div>
           )}
-          
+
           {/* Layers Panel */}
           {showLayersPanel && (
             <div style={{
