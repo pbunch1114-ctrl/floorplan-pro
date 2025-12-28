@@ -5247,21 +5247,25 @@ function FloorPlanPro() {
           const totalThickness = wallConfig.layers.reduce((sum, l) => sum + l.thickness, 0);
           const scaleFactor = thickness / totalThickness;
           let yOffset = -thickness / 2;
-          
+
+          // Calculate pattern offset based on wall's global position
+          // This makes patterns flow continuously across connected walls
+          const patternOffset = (wall.start.x + wall.start.y) % 48;
+
           // Draw each layer with patterns
           wallConfig.layers.forEach(layer => {
             const layerThickness = layer.thickness * scaleFactor;
-            
+
             ctx.save();
             ctx.translate(0, yOffset);
-            
+
             // Base fill
             ctx.fillStyle = isSelected ? adjustColor(layer.color, 20) : layer.color;
             ctx.fillRect(0, 0, wallLength, layerThickness);
-            
+
             // Draw pattern based on layer type
             if (layer.pattern === 'siding') {
-              // Horizontal siding lines
+              // Horizontal siding lines - offset based on global position for continuity
               ctx.strokeStyle = 'rgba(0,0,0,0.2)';
               ctx.lineWidth = 0.5;
               const lineSpacing = Math.max(1.5, layerThickness / 4);
@@ -5272,24 +5276,30 @@ function FloorPlanPro() {
                 ctx.stroke();
               }
             } else if (layer.pattern === 'plywood') {
-              // Wood grain lines
+              // Wood grain lines - use pattern offset for continuity at corners
               ctx.strokeStyle = 'rgba(139,90,43,0.3)';
               ctx.lineWidth = 0.5;
-              for (let x = 0; x < wallLength; x += 24) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, layerThickness);
-                ctx.stroke();
+              const plywoodSpacing = 24;
+              const startX = -((patternOffset) % plywoodSpacing);
+              for (let x = startX; x < wallLength; x += plywoodSpacing) {
+                if (x >= 0) {
+                  ctx.beginPath();
+                  ctx.moveTo(x, 0);
+                  ctx.lineTo(x, layerThickness);
+                  ctx.stroke();
+                }
               }
             } else if (layer.pattern === 'insulation') {
-              // Wavy insulation pattern
+              // Wavy insulation pattern - use offset for continuity
               ctx.strokeStyle = 'rgba(255,150,180,0.4)';
               ctx.lineWidth = 1;
               const waveHeight = layerThickness * 0.3;
-              for (let x = 0; x < wallLength; x += 8) {
+              const waveSpacing = 8;
+              const startX = -((patternOffset) % waveSpacing);
+              for (let x = startX; x < wallLength; x += waveSpacing) {
                 ctx.beginPath();
-                ctx.moveTo(x, layerThickness / 2 - waveHeight);
-                ctx.quadraticCurveTo(x + 4, layerThickness / 2 + waveHeight, x + 8, layerThickness / 2 - waveHeight);
+                ctx.moveTo(Math.max(0, x), layerThickness / 2 - waveHeight);
+                ctx.quadraticCurveTo(x + 4, layerThickness / 2 + waveHeight, x + waveSpacing, layerThickness / 2 - waveHeight);
                 ctx.stroke();
               }
             } else if (layer.pattern === 'cavity') {
@@ -5297,17 +5307,17 @@ function FloorPlanPro() {
               ctx.fillStyle = isSelected ? '#3a3a3a' : '#1a1a1a';
               ctx.fillRect(0, 0, wallLength, layerThickness);
             }
-            
+
             ctx.restore();
             yOffset += layerThickness;
           });
-          
-          // Draw studs in detailed mode
+
+          // Draw studs in detailed mode - use offset for continuity at corners
           if (wallConfig.studs) {
             const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
             const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
             const studDepth = wallConfig.studs.depth * scaleFactor;
-            
+
             // Find the cavity layer position
             let cavityStart = -thickness / 2;
             let cavityThickness = 0;
@@ -5319,17 +5329,24 @@ function FloorPlanPro() {
                 cavityStart += layerThick;
               }
             });
-            
-            // Draw studs
+
+            // Draw studs with offset based on global position
             ctx.fillStyle = isSelected ? '#E8C888' : wallConfig.studs.color;
-            for (let x = studWidth; x < wallLength - studWidth; x += studSpacing) {
+            const studStartOffset = (patternOffset % studSpacing);
+
+            // End stud at start
+            ctx.fillRect(0, cavityStart, studWidth, cavityThickness);
+
+            // Interior studs - offset for continuity
+            const firstStudX = studSpacing - studStartOffset;
+            for (let x = firstStudX; x < wallLength - studWidth; x += studSpacing) {
               ctx.fillRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
             }
-            // End studs
-            ctx.fillRect(0, cavityStart, studWidth, cavityThickness);
+
+            // End stud at end
             ctx.fillRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
           }
-          
+
           // Draw outline
           ctx.strokeStyle = isSelected ? '#00ffaa' : '#555';
           ctx.lineWidth = 1.5;
