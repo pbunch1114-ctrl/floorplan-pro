@@ -2474,45 +2474,59 @@ function FloorPlanPro() {
         }
       }
     } else if (tool === 'corner') {
-      // Corner tool - click near where two walls should meet to clean up the corner
+      // Corner tool - tap anywhere near a corner to clean it up
+      // Much more forgiving - finds closest walls and figures out which endpoints to join
       const walls = activeFloor.walls || [];
+      if (walls.length < 2) return;
 
-      // Find the two closest wall endpoints to the click point
-      // Use larger threshold on mobile for easier touch targeting
-      const maxDist = isMobile ? 80 / scale : 50 / scale;
+      // Large search radius - especially on mobile
+      const searchRadius = isMobile ? 150 / scale : 100 / scale;
 
-      const endpoints = [];
+      // Find all walls within search radius (by checking distance to wall line, not just endpoints)
+      const nearbyWalls = [];
       for (const wall of walls) {
-        endpoints.push({ wall, endpoint: 'start', point: wall.start, dist: distance(pos, wall.start) });
-        endpoints.push({ wall, endpoint: 'end', point: wall.end, dist: distance(pos, wall.end) });
-      }
+        // Calculate distance from tap point to wall line segment
+        const dx = wall.end.x - wall.start.x;
+        const dy = wall.end.y - wall.start.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 0.001) continue;
 
-      // Sort by distance and get the two closest from different walls
-      endpoints.sort((a, b) => a.dist - b.dist);
+        // Project point onto wall line
+        let t = ((pos.x - wall.start.x) * dx + (pos.y - wall.start.y) * dy) / (len * len);
+        t = Math.max(0, Math.min(1, t));
 
-      let wall1Info = null;
-      let wall2Info = null;
+        const closest = {
+          x: wall.start.x + t * dx,
+          y: wall.start.y + t * dy
+        };
 
-      for (const ep of endpoints) {
-        if (ep.dist > maxDist) break; // Too far away
-
-        if (!wall1Info) {
-          wall1Info = ep;
-        } else if (ep.wall.id !== wall1Info.wall.id) {
-          wall2Info = ep;
-          break;
+        const distToWall = distance(pos, closest);
+        if (distToWall < searchRadius) {
+          nearbyWalls.push({ wall, distToWall });
         }
       }
 
-      if (wall1Info && wall2Info) {
-        const wall1 = wall1Info.wall;
-        const wall2 = wall2Info.wall;
+      // Sort by distance to wall
+      nearbyWalls.sort((a, b) => a.distToWall - b.distToWall);
+
+      // Take the two closest walls
+      if (nearbyWalls.length >= 2) {
+        const wall1 = nearbyWalls[0].wall;
+        const wall2 = nearbyWalls[1].wall;
+
+        // Find which endpoints of these walls are closest to each other
+        const endpointPairs = [
+          { ep1: 'start', ep2: 'start', dist: distance(wall1.start, wall2.start) },
+          { ep1: 'start', ep2: 'end', dist: distance(wall1.start, wall2.end) },
+          { ep1: 'end', ep2: 'start', dist: distance(wall1.end, wall2.start) },
+          { ep1: 'end', ep2: 'end', dist: distance(wall1.end, wall2.end) },
+        ];
+        endpointPairs.sort((a, b) => a.dist - b.dist);
+        const closestPair = endpointPairs[0];
 
         // Calculate the intersection point of the two wall lines (extended infinitely)
-        // Wall 1 line
         const x1 = wall1.start.x, y1 = wall1.start.y;
         const x2 = wall1.end.x, y2 = wall1.end.y;
-        // Wall 2 line
         const x3 = wall2.start.x, y3 = wall2.start.y;
         const x4 = wall2.end.x, y4 = wall2.end.y;
 
@@ -2520,7 +2534,6 @@ function FloorPlanPro() {
 
         if (Math.abs(denom) > 0.001) { // Not parallel
           const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-          const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
 
           // Calculate intersection point
           const ix = x1 + t * (x2 - x1);
@@ -2530,16 +2543,14 @@ function FloorPlanPro() {
           // Update both walls to meet at the intersection
           const updatedWalls = walls.map(w => {
             if (w.id === wall1.id) {
-              // Extend/trim wall1's closest endpoint to intersection
-              if (wall1Info.endpoint === 'start') {
+              if (closestPair.ep1 === 'start') {
                 return { ...w, start: intersection };
               } else {
                 return { ...w, end: intersection };
               }
             }
             if (w.id === wall2.id) {
-              // Extend/trim wall2's closest endpoint to intersection
-              if (wall2Info.endpoint === 'start') {
+              if (closestPair.ep2 === 'start') {
                 return { ...w, start: intersection };
               } else {
                 return { ...w, end: intersection };
