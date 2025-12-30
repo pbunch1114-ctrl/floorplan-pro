@@ -4603,13 +4603,18 @@ function FloorPlanPro() {
       return;
     }
 
-    // Calculate bounds - use X for horizontal walls, Y for vertical walls
+    // Calculate bounds for the elevation view
+    // For ALL elevations, we need to find the horizontal extent of the walls as they appear in the view
+    // North/South: looking at horizontal walls, their X extent is the width
+    // East/West: looking at vertical walls, their Y extent is the width (wall runs north-south, we see it side-on)
     let minPos = Infinity, maxPos = -Infinity;
     elevationWalls.forEach(wall => {
       if (isHorizontalElevation) {
+        // North/South view - horizontal walls - use X for positioning
         minPos = Math.min(minPos, wall.start.x, wall.end.x);
         maxPos = Math.max(maxPos, wall.start.x, wall.end.x);
       } else {
+        // East/West view - vertical walls - use Y for positioning (wall's north-south extent)
         minPos = Math.min(minPos, wall.start.y, wall.end.y);
         maxPos = Math.max(maxPos, wall.start.y, wall.end.y);
       }
@@ -4620,12 +4625,15 @@ function FloorPlanPro() {
     const wallHeight = 200; // ~10 feet in grid units
 
     // Scale to fit canvas with padding
+    // Use a minimum width to prevent over-scaling when elevation is narrow
     const padding = 80;
     const availableWidth = width - padding * 2;
     const availableHeight = height - padding * 2;
-    const scaleX = availableWidth / Math.max(elevationWidth, 1);
+    const minElevationWidth = 100; // Minimum width to prevent extreme scaling
+    const effectiveWidth = Math.max(elevationWidth, minElevationWidth);
+    const scaleX = availableWidth / effectiveWidth;
     const scaleY = availableHeight / wallHeight;
-    const elevScale = Math.min(scaleX, scaleY, 3); // Cap max scale
+    const elevScale = Math.min(scaleX, scaleY, 2); // Cap max scale at 2 (was 3)
 
     // Center offset
     const scaledWidth = elevationWidth * elevScale;
