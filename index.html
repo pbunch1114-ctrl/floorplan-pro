@@ -912,6 +912,7 @@ function FloorPlanPro() {
     lines: { visible: true, locked: false, name: 'Lines', color: '#aaaaaa' },
     hatches: { visible: true, locked: false, name: 'Hatches', color: '#668844' },
     porches: { visible: true, locked: false, name: 'Porches', color: '#886644' },
+    roofs: { visible: true, locked: false, name: 'Roofs', color: '#8b5a2b' },
   });
   const [showLayersPanel, setShowLayersPanel] = useState(false);
   
@@ -4684,6 +4685,130 @@ function FloorPlanPro() {
       });
     });
 
+    // Draw roofs
+    const roofs = activeFloor.roofs || [];
+    roofs.forEach(roof => {
+      const roofDef = ROOF_TYPES[roof.type] || ROOF_TYPES.gable;
+      const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
+      const overhang = (roof.overhang || 12) * elevScale;
+
+      // Calculate roof position based on elevation direction
+      let roofStartPos, roofEndPos;
+      if (isHorizontalElevation) {
+        // North/South elevation - roof spans X
+        roofStartPos = roof.x;
+        roofEndPos = roof.x + roof.width;
+      } else {
+        // East/West elevation - roof spans Y
+        roofStartPos = roof.y;
+        roofEndPos = roof.y + roof.height;
+      }
+
+      // Check if roof is visible in this elevation (within bounds)
+      if (roofEndPos < minPos || roofStartPos > maxPos) return;
+
+      const roofX = offsetX + (roofStartPos - minPos) * elevScale - overhang;
+      const roofW = (roofEndPos - roofStartPos) * elevScale + overhang * 2;
+      const roofBaseY = offsetY - wallHeight * elevScale;
+
+      // Calculate roof peak height based on pitch
+      const roofSpan = isHorizontalElevation ? roof.height : roof.width;
+      const roofRise = (roofSpan / 2) * (pitchDef.rise / pitchDef.run) * elevScale;
+
+      if (roof.type === 'gable' || roof.type === 'gambrel') {
+        // Determine if we're viewing the gable end or the eave side
+        const viewingGableEnd = (isHorizontalElevation && roof.ridgeDirection === 'horizontal') ||
+                                (!isHorizontalElevation && roof.ridgeDirection === 'vertical');
+
+        if (viewingGableEnd) {
+          // Draw triangular gable end
+          ctx.fillStyle = '#b8860b';
+          ctx.beginPath();
+          ctx.moveTo(roofX, roofBaseY);
+          ctx.lineTo(roofX + roofW / 2, roofBaseY - roofRise);
+          ctx.lineTo(roofX + roofW, roofBaseY);
+          ctx.closePath();
+          ctx.fill();
+
+          // Gable outline
+          ctx.strokeStyle = '#654321';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Shingle lines
+          ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+          ctx.lineWidth = 1;
+          const shingleSpacing = 8;
+          for (let i = 1; i < roofRise / shingleSpacing; i++) {
+            const y = roofBaseY - i * shingleSpacing;
+            const xOffset = i * shingleSpacing * (roofW / 2) / roofRise;
+            ctx.beginPath();
+            ctx.moveTo(roofX + xOffset, y);
+            ctx.lineTo(roofX + roofW - xOffset, y);
+            ctx.stroke();
+          }
+        } else {
+          // Draw eave side (rectangular with slight slope indication)
+          ctx.fillStyle = '#b8860b';
+          ctx.fillRect(roofX, roofBaseY - 20, roofW, 20);
+
+          // Roof edge/fascia
+          ctx.strokeStyle = '#654321';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(roofX, roofBaseY);
+          ctx.lineTo(roofX + roofW, roofBaseY);
+          ctx.stroke();
+
+          // Shingle lines
+          ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+          ctx.lineWidth = 1;
+          for (let x = roofX + 15; x < roofX + roofW; x += 20) {
+            ctx.beginPath();
+            ctx.moveTo(x, roofBaseY - 20);
+            ctx.lineTo(x, roofBaseY);
+            ctx.stroke();
+          }
+        }
+      } else if (roof.type === 'hip') {
+        // Hip roof - always shows sloped sides
+        ctx.fillStyle = '#b8860b';
+        ctx.beginPath();
+        ctx.moveTo(roofX, roofBaseY);
+        ctx.lineTo(roofX + roofW * 0.2, roofBaseY - roofRise * 0.7);
+        ctx.lineTo(roofX + roofW * 0.8, roofBaseY - roofRise * 0.7);
+        ctx.lineTo(roofX + roofW, roofBaseY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#654321';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (roof.type === 'shed') {
+        // Shed roof - single slope
+        ctx.fillStyle = '#b8860b';
+        ctx.beginPath();
+        ctx.moveTo(roofX, roofBaseY);
+        ctx.lineTo(roofX, roofBaseY - roofRise);
+        ctx.lineTo(roofX + roofW, roofBaseY - roofRise * 0.3);
+        ctx.lineTo(roofX + roofW, roofBaseY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#654321';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (roof.type === 'flat') {
+        // Flat roof - just a cap
+        ctx.fillStyle = '#808080';
+        ctx.fillRect(roofX, roofBaseY - 10, roofW, 10);
+
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(roofX, roofBaseY - 10, roofW, 10);
+      }
+    });
+
     // Draw scale reference
     ctx.fillStyle = '#666';
     ctx.font = '12px Arial';
@@ -4892,6 +5017,7 @@ function FloorPlanPro() {
     }
 
     // Draw roofs
+    if (layers.roofs?.visible) {
     (activeFloor.roofs || []).forEach(roof => {
       const isSelected = selectedItems.some(s => s.type === 'roof' && s.item.id === roof.id);
       const roofDef = ROOF_TYPES[roof.type] || ROOF_TYPES.gable;
@@ -5116,6 +5242,7 @@ function FloorPlanPro() {
       const roofHFt = pixelsToFeet(roof.height);
       ctx.fillText(`${formatMeasurement(roofWFt)} × ${formatMeasurement(roofHFt)}`, roof.x + roof.width / 2, roof.y + roof.height / 2 + 18);
     });
+    }
 
     // Draw lines
     if (layers.lines?.visible) {
