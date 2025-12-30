@@ -126,25 +126,6 @@ const WALL_DETAIL_LEVELS = {
   detailed: { label: 'Detailed', description: 'Full construction' },
 };
 
-// Roof types
-const ROOF_TYPES = {
-  gable: { label: 'Gable', description: 'Two sloping sides meeting at ridge', icon: '⌂' },
-  hip: { label: 'Hip', description: 'Slopes on all four sides', icon: '⌂' },
-  shed: { label: 'Shed', description: 'Single sloping surface', icon: '/' },
-  flat: { label: 'Flat', description: 'Level roof surface', icon: '▭' },
-  gambrel: { label: 'Gambrel', description: 'Barn-style with two slopes per side', icon: '⌂' },
-};
-
-const ROOF_PITCHES = {
-  '3:12': { rise: 3, run: 12, label: '3:12 (14°)' },
-  '4:12': { rise: 4, run: 12, label: '4:12 (18°)' },
-  '5:12': { rise: 5, run: 12, label: '5:12 (22°)' },
-  '6:12': { rise: 6, run: 12, label: '6:12 (27°)' },
-  '8:12': { rise: 8, run: 12, label: '8:12 (34°)' },
-  '10:12': { rise: 10, run: 12, label: '10:12 (40°)' },
-  '12:12': { rise: 12, run: 12, label: '12:12 (45°)' },
-};
-
 const FURNITURE_LIBRARY = [
   { id: 'bed-king', name: 'King Bed', category: 'bedroom', width: 80, height: 76, icon: '🛏️', shape: 'bed' },
   { id: 'bed-queen', name: 'Queen Bed', category: 'bedroom', width: 60, height: 80, icon: '🛏️', shape: 'bed' },
@@ -837,27 +818,17 @@ function FloorPlanPro() {
   
   // Paper space zoom
   const [paperZoom, setPaperZoom] = useState(0.4);
-  const [paperPan, setPaperPan] = useState({ x: 0, y: 0 });
-  const [isPaperPanning, setIsPaperPanning] = useState(false);
-  const [paperPanStart, setPaperPanStart] = useState(null);
-
-  // Elevation view zoom and pan
-  const [elevationZoom, setElevationZoom] = useState(0.5);
-  const [elevationPan, setElevationPan] = useState({ x: 0, y: 0 });
-  const [isElevationPanning, setIsElevationPanning] = useState(false);
-  const [elevationPanStart, setElevationPanStart] = useState(null);
   
   // Core state
   const [tool, setTool] = useState('wall');
-  const [toolTab, setToolTab] = useState('draw'); // 'draw', 'modify', 'annotate', 'view'
   const [wallType, setWallType] = useState('exterior');
-  const [floors, setFloors] = useState([{
-    id: 'floor-1',
-    name: 'Floor 1',
-    walls: [],
-    doors: [],
-    windows: [],
-    furniture: [],
+  const [floors, setFloors] = useState([{ 
+    id: 'floor-1', 
+    name: 'Floor 1', 
+    walls: [], 
+    doors: [], 
+    windows: [], 
+    furniture: [], 
     rooms: [],
     stairs: [],
     electrical: [],
@@ -869,7 +840,6 @@ function FloorPlanPro() {
     polylines: [],
     hatches: [],
     porches: [],
-    roofs: [],
   }]);
   const [activeFloorId, setActiveFloorId] = useState('floor-1');
   const [selectedItems, setSelectedItems] = useState([]);
@@ -912,7 +882,6 @@ function FloorPlanPro() {
     lines: { visible: true, locked: false, name: 'Lines', color: '#aaaaaa' },
     hatches: { visible: true, locked: false, name: 'Hatches', color: '#668844' },
     porches: { visible: true, locked: false, name: 'Porches', color: '#886644' },
-    roofs: { visible: true, locked: false, name: 'Roofs', color: '#8b5a2b' },
   });
   const [showLayersPanel, setShowLayersPanel] = useState(false);
   
@@ -963,14 +932,7 @@ function FloorPlanPro() {
   // UI state
   const [activePanel, setActivePanel] = useState(null); // 'furniture', 'stairs', 'electrical', 'plumbing'
   const [showRoomPanel, setShowRoomPanel] = useState(false);
-  const [showRoofPanel, setShowRoofPanel] = useState(false);
   const [show3D, setShow3D] = useState(false);
-
-  // Roof tool state
-  const [roofType, setRoofType] = useState('gable');
-  const [roofPitch, setRoofPitch] = useState('6:12');
-  const [roofStart, setRoofStart] = useState(null);
-  const [roofOverhang, setRoofOverhang] = useState(12); // inches
   const [furnitureCategory, setFurnitureCategory] = useState('all');
   const [showWallEditor, setShowWallEditor] = useState(false);
   const [showDoorWindowEditor, setShowDoorWindowEditor] = useState(false);
@@ -1009,9 +971,6 @@ function FloorPlanPro() {
   
   // Wall detail level: 'simple', 'standard', 'detailed'
   const [wallDetailLevel, setWallDetailLevel] = useState('simple');
-
-  // Render mode: 'linework' (clean CAD style), 'realistic' (with textures/colors)
-  const [renderMode, setRenderMode] = useState('linework');
   
   // Get current grid size in pixels
   const currentGridSize = GRID_OPTIONS[gridSize]?.size || GRID_SIZE;
@@ -1743,16 +1702,7 @@ function FloorPlanPro() {
         return { type: 'porch', item: porch };
       }
     }
-
-    // Check roofs
-    for (const roof of (activeFloor.roofs || [])) {
-      const overhang = (roof.overhang || 12) * (GRID_SIZE / 6) / 12;
-      if (point.x >= roof.x - overhang && point.x <= roof.x + roof.width + overhang &&
-          point.y >= roof.y - overhang && point.y <= roof.y + roof.height + overhang) {
-        return { type: 'roof', item: roof };
-      }
-    }
-
+    
     // Check lines
     for (const line of (activeFloor.lines || [])) {
       const dx = line.end.x - line.start.x;
@@ -2119,11 +2069,6 @@ function FloorPlanPro() {
       }
     } else if (tool === 'porch') {
       // Draw porch (rectangle-based)
-      setIsDrawing(true);
-      setDrawStart(snappedPos);
-      setDrawEnd(snappedPos);
-    } else if (tool === 'roof') {
-      // Draw roof (rectangle-based footprint)
       setIsDrawing(true);
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
@@ -2677,38 +2622,7 @@ function FloorPlanPro() {
     } else if (isDrawing) {
       const pos = getPointerPos(e);
       const snappedPos = { x: snap(pos.x), y: snap(pos.y) };
-
-      // Auto-pan when drawing near screen edges on mobile
-      if (isMobile && canvasRef.current) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const edgeThreshold = 60; // pixels from edge to trigger pan
-        const panSpeed = 8; // pixels to pan per move event
-
-        let panX = 0;
-        let panY = 0;
-
-        // Check if pointer is near edges
-        if (clientX < rect.left + edgeThreshold) {
-          panX = panSpeed; // Pan right (move canvas left relative to view)
-        } else if (clientX > rect.right - edgeThreshold) {
-          panX = -panSpeed; // Pan left
-        }
-
-        if (clientY < rect.top + edgeThreshold) {
-          panY = panSpeed; // Pan down
-        } else if (clientY > rect.bottom - edgeThreshold) {
-          panY = -panSpeed; // Pan up
-        }
-
-        // Apply auto-pan if near edge
-        if (panX !== 0 || panY !== 0) {
-          setOffset(prev => ({
-            x: prev.x + panX,
-            y: prev.y + panY
-          }));
-        }
-      }
-
+      
       if (tool === 'wall' && drawStart) {
         // Use angle snapping for walls
         const angleSnapped = snapAngle(drawStart, snappedPos);
@@ -3227,33 +3141,14 @@ function FloorPlanPro() {
           };
           updateActiveFloor(f => ({ ...f, porches: [...(f.porches || []), newPorch] }));
         }
-      } else if (tool === 'roof') {
-        const width = Math.abs(drawEnd.x - drawStart.x);
-        const height = Math.abs(drawEnd.y - drawStart.y);
-        if (width >= GRID_SIZE && height >= GRID_SIZE) {
-          const newRoof = {
-            id: generateId(),
-            x: Math.min(drawStart.x, drawEnd.x),
-            y: Math.min(drawStart.y, drawEnd.y),
-            width,
-            height,
-            type: roofType,
-            pitch: roofPitch,
-            overhang: roofOverhang,
-            ridgeDirection: width > height ? 'horizontal' : 'vertical', // Ridge runs along longer dimension
-          };
-          updateActiveFloor(f => ({ ...f, roofs: [...(f.roofs || []), newRoof] }));
-          setSelectedItems([{ type: 'roof', item: newRoof }]);
-          setShowRoofPanel(true);
-        }
       }
     }
-
+    
     setIsDrawing(false);
     setDrawStart(null);
     setDrawEnd(null);
     setWallDrawSnap(null);
-  }, [isPanning, isDrawing, tool, drawStart, drawEnd, wallType, porchType, roofType, roofPitch, roofOverhang, dragItem, activeGrip, updateActiveFloor]);
+  }, [isPanning, isDrawing, tool, drawStart, drawEnd, wallType, porchType, dragItem, activeGrip, updateActiveFloor]);
   
   // ============================================================================
   // ZOOM
@@ -3365,18 +3260,12 @@ function FloorPlanPro() {
           ...f,
           porches: (f.porches || []).filter(p => p.id !== sel.item.id),
         }));
-      } else if (sel.type === 'roof') {
-        updateActiveFloor(f => ({
-          ...f,
-          roofs: (f.roofs || []).filter(r => r.id !== sel.item.id),
-        }));
       }
     });
-
+    
     setSelectedItems([]);
     setShowWallEditor(false);
     setShowDoorWindowEditor(false);
-    setShowRoofPanel(false);
   };
   
   // Copy selected items to clipboard
@@ -4569,25 +4458,12 @@ function FloorPlanPro() {
     // Wall height in same units as the grid (GRID_SIZE = 20 = 6 inches, so 10 feet = 200 units)
     const wallHeight = 200; // ~10 feet in grid units
 
-    // Calculate max roof rise to include in height calculation
-    const roofs = activeFloor.roofs || [];
-    let maxRoofRise = 0;
-    roofs.forEach(roof => {
-      const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
-      const roofSpan = isHorizontalElevation ? roof.height : roof.width;
-      const roofRise = (roofSpan / 2) * (pitchDef.rise / pitchDef.run);
-      maxRoofRise = Math.max(maxRoofRise, roofRise);
-    });
-
-    // Total height includes walls plus roof
-    const totalHeight = wallHeight + maxRoofRise;
-
     // Scale to fit canvas with padding
     const padding = 80;
     const availableWidth = width - padding * 2;
     const availableHeight = height - padding * 2;
     const scaleX = availableWidth / Math.max(elevationWidth, 1);
-    const scaleY = availableHeight / totalHeight;
+    const scaleY = availableHeight / wallHeight;
     const elevScale = Math.min(scaleX, scaleY, 3); // Cap max scale
 
     // Center offset
@@ -4727,130 +4603,6 @@ function FloorPlanPro() {
         ctx.fillStyle = '#ddd';
         ctx.fillRect(winX - 4, winY + winHeightPx, winWidthPx + 8, 6);
       });
-    });
-
-    // Draw roofs
-    const roofs = activeFloor.roofs || [];
-    roofs.forEach(roof => {
-      const roofDef = ROOF_TYPES[roof.type] || ROOF_TYPES.gable;
-      const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
-      const overhang = (roof.overhang || 12) * elevScale;
-
-      // Calculate roof position based on elevation direction
-      let roofStartPos, roofEndPos;
-      if (isHorizontalElevation) {
-        // North/South elevation - roof spans X
-        roofStartPos = roof.x;
-        roofEndPos = roof.x + roof.width;
-      } else {
-        // East/West elevation - roof spans Y
-        roofStartPos = roof.y;
-        roofEndPos = roof.y + roof.height;
-      }
-
-      // Check if roof is visible in this elevation (within bounds)
-      if (roofEndPos < minPos || roofStartPos > maxPos) return;
-
-      const roofX = offsetX + (roofStartPos - minPos) * elevScale - overhang;
-      const roofW = (roofEndPos - roofStartPos) * elevScale + overhang * 2;
-      const roofBaseY = offsetY - wallHeight * elevScale;
-
-      // Calculate roof peak height based on pitch
-      const roofSpan = isHorizontalElevation ? roof.height : roof.width;
-      const roofRise = (roofSpan / 2) * (pitchDef.rise / pitchDef.run) * elevScale;
-
-      if (roof.type === 'gable' || roof.type === 'gambrel') {
-        // Determine if we're viewing the gable end or the eave side
-        const viewingGableEnd = (isHorizontalElevation && roof.ridgeDirection === 'horizontal') ||
-                                (!isHorizontalElevation && roof.ridgeDirection === 'vertical');
-
-        if (viewingGableEnd) {
-          // Draw triangular gable end
-          ctx.fillStyle = '#b8860b';
-          ctx.beginPath();
-          ctx.moveTo(roofX, roofBaseY);
-          ctx.lineTo(roofX + roofW / 2, roofBaseY - roofRise);
-          ctx.lineTo(roofX + roofW, roofBaseY);
-          ctx.closePath();
-          ctx.fill();
-
-          // Gable outline
-          ctx.strokeStyle = '#654321';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-
-          // Shingle lines
-          ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-          ctx.lineWidth = 1;
-          const shingleSpacing = 8;
-          for (let i = 1; i < roofRise / shingleSpacing; i++) {
-            const y = roofBaseY - i * shingleSpacing;
-            const xOffset = i * shingleSpacing * (roofW / 2) / roofRise;
-            ctx.beginPath();
-            ctx.moveTo(roofX + xOffset, y);
-            ctx.lineTo(roofX + roofW - xOffset, y);
-            ctx.stroke();
-          }
-        } else {
-          // Draw eave side (rectangular with slight slope indication)
-          ctx.fillStyle = '#b8860b';
-          ctx.fillRect(roofX, roofBaseY - 20, roofW, 20);
-
-          // Roof edge/fascia
-          ctx.strokeStyle = '#654321';
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(roofX, roofBaseY);
-          ctx.lineTo(roofX + roofW, roofBaseY);
-          ctx.stroke();
-
-          // Shingle lines
-          ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-          ctx.lineWidth = 1;
-          for (let x = roofX + 15; x < roofX + roofW; x += 20) {
-            ctx.beginPath();
-            ctx.moveTo(x, roofBaseY - 20);
-            ctx.lineTo(x, roofBaseY);
-            ctx.stroke();
-          }
-        }
-      } else if (roof.type === 'hip') {
-        // Hip roof - always shows sloped sides
-        ctx.fillStyle = '#b8860b';
-        ctx.beginPath();
-        ctx.moveTo(roofX, roofBaseY);
-        ctx.lineTo(roofX + roofW * 0.2, roofBaseY - roofRise * 0.7);
-        ctx.lineTo(roofX + roofW * 0.8, roofBaseY - roofRise * 0.7);
-        ctx.lineTo(roofX + roofW, roofBaseY);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = '#654321';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else if (roof.type === 'shed') {
-        // Shed roof - single slope
-        ctx.fillStyle = '#b8860b';
-        ctx.beginPath();
-        ctx.moveTo(roofX, roofBaseY);
-        ctx.lineTo(roofX, roofBaseY - roofRise);
-        ctx.lineTo(roofX + roofW, roofBaseY - roofRise * 0.3);
-        ctx.lineTo(roofX + roofW, roofBaseY);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = '#654321';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else if (roof.type === 'flat') {
-        // Flat roof - just a cap
-        ctx.fillStyle = '#808080';
-        ctx.fillRect(roofX, roofBaseY - 10, roofW, 10);
-
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(roofX, roofBaseY - 10, roofW, 10);
-      }
     });
 
     // Draw scale reference
@@ -5059,235 +4811,7 @@ function FloorPlanPro() {
         ctx.fillText(`${formatMeasurement(porchWFt)} × ${formatMeasurement(porchHFt)}`, porch.x + porch.width / 2, porch.y + porch.height / 2 + 15);
       });
     }
-
-    // Draw roofs
-    if (layers.roofs?.visible) {
-    (activeFloor.roofs || []).forEach(roof => {
-      const isSelected = selectedItems.some(s => s.type === 'roof' && s.item.id === roof.id);
-      const roofDef = ROOF_TYPES[roof.type] || ROOF_TYPES.gable;
-      const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
-      const overhang = (roof.overhang || 12) * (GRID_SIZE / 6) / 12; // Convert inches to pixels
-
-      // Roof outline with overhang
-      const roofX = roof.x - overhang;
-      const roofY = roof.y - overhang;
-      const roofW = roof.width + overhang * 2;
-      const roofH = roof.height + overhang * 2;
-
-      // Fill with roof color (semi-transparent)
-      ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.15)' : 'rgba(139,90,43,0.1)';
-      ctx.fillRect(roofX, roofY, roofW, roofH);
-
-      // Draw roof pattern based on type
-      ctx.strokeStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.6)';
-      ctx.lineWidth = isSelected ? 2 : 1;
-
-      if (roof.type === 'gable' || roof.type === 'gambrel') {
-        // Ridge line
-        ctx.setLineDash([]);
-        ctx.lineWidth = isSelected ? 3 : 2;
-        if (roof.ridgeDirection === 'horizontal') {
-          // Ridge runs horizontally (east-west)
-          const ridgeY = roofY + roofH / 2;
-          ctx.beginPath();
-          ctx.moveTo(roofX, ridgeY);
-          ctx.lineTo(roofX + roofW, ridgeY);
-          ctx.stroke();
-
-          // Slope lines from ridge to eaves
-          ctx.lineWidth = 1;
-          ctx.setLineDash([8, 4]);
-          const slopeSpacing = 30;
-          for (let x = roofX + slopeSpacing; x < roofX + roofW; x += slopeSpacing) {
-            // North slope
-            ctx.beginPath();
-            ctx.moveTo(x, ridgeY);
-            ctx.lineTo(x, roofY);
-            ctx.stroke();
-            // South slope
-            ctx.beginPath();
-            ctx.moveTo(x, ridgeY);
-            ctx.lineTo(x, roofY + roofH);
-            ctx.stroke();
-          }
-        } else {
-          // Ridge runs vertically (north-south)
-          const ridgeX = roofX + roofW / 2;
-          ctx.beginPath();
-          ctx.moveTo(ridgeX, roofY);
-          ctx.lineTo(ridgeX, roofY + roofH);
-          ctx.stroke();
-
-          // Slope lines from ridge to eaves
-          ctx.lineWidth = 1;
-          ctx.setLineDash([8, 4]);
-          const slopeSpacing = 30;
-          for (let y = roofY + slopeSpacing; y < roofY + roofH; y += slopeSpacing) {
-            // West slope
-            ctx.beginPath();
-            ctx.moveTo(ridgeX, y);
-            ctx.lineTo(roofX, y);
-            ctx.stroke();
-            // East slope
-            ctx.beginPath();
-            ctx.moveTo(ridgeX, y);
-            ctx.lineTo(roofX + roofW, y);
-            ctx.stroke();
-          }
-        }
-      } else if (roof.type === 'hip') {
-        // Hip roof - slopes on all four sides
-        ctx.setLineDash([]);
-        ctx.lineWidth = isSelected ? 2 : 1.5;
-        const centerX = roofX + roofW / 2;
-        const centerY = roofY + roofH / 2;
-
-        // Determine ridge based on shape
-        if (roofW > roofH) {
-          // Horizontal ridge
-          const ridgeLen = (roofW - roofH) / 2;
-          const ridgeStartX = centerX - ridgeLen;
-          const ridgeEndX = centerX + ridgeLen;
-          // Ridge line
-          ctx.beginPath();
-          ctx.moveTo(ridgeStartX, centerY);
-          ctx.lineTo(ridgeEndX, centerY);
-          ctx.stroke();
-          // Hip lines to corners
-          ctx.beginPath();
-          ctx.moveTo(ridgeStartX, centerY);
-          ctx.lineTo(roofX, roofY);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(ridgeStartX, centerY);
-          ctx.lineTo(roofX, roofY + roofH);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(ridgeEndX, centerY);
-          ctx.lineTo(roofX + roofW, roofY);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(ridgeEndX, centerY);
-          ctx.lineTo(roofX + roofW, roofY + roofH);
-          ctx.stroke();
-        } else {
-          // Vertical ridge or pyramid
-          const ridgeLen = (roofH - roofW) / 2;
-          const ridgeStartY = centerY - ridgeLen;
-          const ridgeEndY = centerY + ridgeLen;
-          if (ridgeLen > 0) {
-            ctx.beginPath();
-            ctx.moveTo(centerX, ridgeStartY);
-            ctx.lineTo(centerX, ridgeEndY);
-            ctx.stroke();
-          }
-          // Hip lines to corners
-          ctx.beginPath();
-          ctx.moveTo(centerX, ridgeStartY);
-          ctx.lineTo(roofX, roofY);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(centerX, ridgeStartY);
-          ctx.lineTo(roofX + roofW, roofY);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(centerX, ridgeEndY);
-          ctx.lineTo(roofX, roofY + roofH);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(centerX, ridgeEndY);
-          ctx.lineTo(roofX + roofW, roofY + roofH);
-          ctx.stroke();
-        }
-      } else if (roof.type === 'shed') {
-        // Shed roof - single slope
-        ctx.setLineDash([8, 4]);
-        ctx.lineWidth = 1;
-        const slopeSpacing = 20;
-        if (roof.ridgeDirection === 'horizontal') {
-          for (let x = roofX + slopeSpacing; x < roofX + roofW; x += slopeSpacing) {
-            ctx.beginPath();
-            ctx.moveTo(x, roofY);
-            ctx.lineTo(x, roofY + roofH);
-            ctx.stroke();
-          }
-          // Arrow indicating slope direction
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.moveTo(roofX + roofW / 2, roofY + 10);
-          ctx.lineTo(roofX + roofW / 2, roofY + roofH - 10);
-          ctx.lineTo(roofX + roofW / 2 - 8, roofY + roofH - 20);
-          ctx.moveTo(roofX + roofW / 2, roofY + roofH - 10);
-          ctx.lineTo(roofX + roofW / 2 + 8, roofY + roofH - 20);
-          ctx.stroke();
-        } else {
-          for (let y = roofY + slopeSpacing; y < roofY + roofH; y += slopeSpacing) {
-            ctx.beginPath();
-            ctx.moveTo(roofX, y);
-            ctx.lineTo(roofX + roofW, y);
-            ctx.stroke();
-          }
-          // Arrow indicating slope direction
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.moveTo(roofX + 10, roofY + roofH / 2);
-          ctx.lineTo(roofX + roofW - 10, roofY + roofH / 2);
-          ctx.lineTo(roofX + roofW - 20, roofY + roofH / 2 - 8);
-          ctx.moveTo(roofX + roofW - 10, roofY + roofH / 2);
-          ctx.lineTo(roofX + roofW - 20, roofY + roofH / 2 + 8);
-          ctx.stroke();
-        }
-      } else if (roof.type === 'flat') {
-        // Flat roof - just outline with drainage pattern
-        ctx.setLineDash([4, 4]);
-        ctx.lineWidth = 0.5;
-        // Grid pattern for flat roof
-        const gridSpacing = 20;
-        for (let x = roofX + gridSpacing; x < roofX + roofW; x += gridSpacing) {
-          ctx.beginPath();
-          ctx.moveTo(x, roofY);
-          ctx.lineTo(x, roofY + roofH);
-          ctx.stroke();
-        }
-        for (let y = roofY + gridSpacing; y < roofY + roofH; y += gridSpacing) {
-          ctx.beginPath();
-          ctx.moveTo(roofX, y);
-          ctx.lineTo(roofX + roofW, y);
-          ctx.stroke();
-        }
-      }
-
-      ctx.setLineDash([]);
-
-      // Outer border (eaves line)
-      ctx.strokeStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.8)';
-      ctx.lineWidth = isSelected ? 2.5 : 2;
-      ctx.strokeRect(roofX, roofY, roofW, roofH);
-
-      // Building footprint (inner dashed line)
-      ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.5)' : 'rgba(139,90,43,0.4)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(roof.x, roof.y, roof.width, roof.height);
-      ctx.setLineDash([]);
-
-      // Label
-      ctx.font = 'bold 11px "SF Pro", system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.9)';
-      ctx.fillText(`${roofDef.label} Roof`, roof.x + roof.width / 2, roof.y + roof.height / 2 - 8);
-
-      // Pitch and dimensions
-      ctx.font = '10px "SF Mono", monospace';
-      ctx.fillStyle = 'rgba(139,90,43,0.7)';
-      ctx.fillText(`${pitchDef.label}`, roof.x + roof.width / 2, roof.y + roof.height / 2 + 6);
-      const roofWFt = pixelsToFeet(roof.width);
-      const roofHFt = pixelsToFeet(roof.height);
-      ctx.fillText(`${formatMeasurement(roofWFt)} × ${formatMeasurement(roofHFt)}`, roof.x + roof.width / 2, roof.y + roof.height / 2 + 18);
-    });
-    }
-
+    
     // Draw lines
     if (layers.lines?.visible) {
       (activeFloor.lines || []).forEach(line => {
@@ -5736,248 +5260,111 @@ function FloorPlanPro() {
           // Detailed mode - full construction with patterns and studs
           const totalThickness = wallConfig.layers.reduce((sum, l) => sum + l.thickness, 0);
           const scaleFactor = thickness / totalThickness;
+          let yOffset = -thickness / 2;
 
-          if (renderMode === 'linework') {
-            // LINE WORK MODE - Clean CAD-style drawing with hatches
-            // Draw wall as outline with layer divisions and CAD-standard hatches
+          // Calculate pattern offset based on wall's global position
+          // This makes patterns flow continuously across connected walls
+          const patternOffset = (wall.start.x + wall.start.y) % 48;
 
-            // Background fill (white/light for paper-like appearance)
-            ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.1)' : '#1a1a1a';
-            ctx.fillRect(0, -thickness / 2, wallLength, thickness);
+          // Draw each layer with patterns
+          wallConfig.layers.forEach(layer => {
+            const layerThickness = layer.thickness * scaleFactor;
 
-            // Draw layer divisions as thin lines
-            let yOffset = -thickness / 2;
-            ctx.strokeStyle = isSelected ? '#00ffaa' : '#666';
-            ctx.lineWidth = 0.5;
-            wallConfig.layers.forEach((layer, i) => {
-              const layerThickness = layer.thickness * scaleFactor;
-              if (i > 0) {
+            ctx.save();
+            ctx.translate(0, yOffset);
+
+            // Base fill
+            ctx.fillStyle = isSelected ? adjustColor(layer.color, 20) : layer.color;
+            ctx.fillRect(0, 0, wallLength, layerThickness);
+
+            // Draw pattern based on layer type
+            if (layer.pattern === 'siding') {
+              // Horizontal siding lines - offset based on global position for continuity
+              ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+              ctx.lineWidth = 0.5;
+              const lineSpacing = Math.max(1.5, layerThickness / 4);
+              for (let y = lineSpacing; y < layerThickness; y += lineSpacing) {
                 ctx.beginPath();
-                ctx.moveTo(0, yOffset);
-                ctx.lineTo(wallLength, yOffset);
+                ctx.moveTo(0, y);
+                ctx.lineTo(wallLength, y);
                 ctx.stroke();
               }
-
-              // Draw CAD-standard hatches for each layer type
-              ctx.save();
-              ctx.beginPath();
-              ctx.rect(0, yOffset, wallLength, layerThickness);
-              ctx.clip();
-
-              if (layer.pattern === 'siding' || layer.pattern === 'plywood') {
-                // Diagonal hatch for wood/siding (45 degrees)
-                ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.4)' : 'rgba(100,100,100,0.5)';
-                ctx.lineWidth = 0.5;
-                const spacing = 4;
-                for (let x = -wallLength; x < wallLength * 2; x += spacing) {
-                  ctx.beginPath();
-                  ctx.moveTo(x, yOffset);
-                  ctx.lineTo(x + layerThickness, yOffset + layerThickness);
-                  ctx.stroke();
-                }
-              } else if (layer.pattern === 'insulation') {
-                // X-hatch for insulation
-                ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.3)' : 'rgba(100,100,100,0.4)';
-                ctx.lineWidth = 0.3;
-                const spacing = 6;
-                // Forward diagonal
-                for (let x = -wallLength; x < wallLength * 2; x += spacing) {
-                  ctx.beginPath();
-                  ctx.moveTo(x, yOffset);
-                  ctx.lineTo(x + layerThickness, yOffset + layerThickness);
-                  ctx.stroke();
-                }
-                // Back diagonal
-                for (let x = -wallLength; x < wallLength * 2; x += spacing) {
-                  ctx.beginPath();
-                  ctx.moveTo(x + layerThickness, yOffset);
-                  ctx.lineTo(x, yOffset + layerThickness);
-                  ctx.stroke();
-                }
-              } else if (layer.pattern === 'drywall') {
-                // Stipple/dots for drywall
-                ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.3)' : 'rgba(100,100,100,0.3)';
-                const spacing = 8;
-                for (let x = spacing/2; x < wallLength; x += spacing) {
-                  for (let dy = spacing/2; dy < layerThickness; dy += spacing) {
-                    ctx.beginPath();
-                    ctx.arc(x, yOffset + dy, 0.5, 0, Math.PI * 2);
-                    ctx.fill();
-                  }
-                }
-              } else if (layer.pattern === 'cavity') {
-                // Empty cavity - no fill
-              }
-
-              ctx.restore();
-              yOffset += layerThickness;
-            });
-
-            // Draw studs as simple rectangles with X inside
-            if (wallConfig.studs) {
-              const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
-              const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
-
-              let cavityStart = -thickness / 2;
-              let cavityThickness = 0;
-              wallConfig.layers.forEach(layer => {
-                const layerThick = layer.thickness * scaleFactor;
-                if (layer.pattern === 'cavity' || layer.pattern === 'insulation') {
-                  cavityThickness = layerThick;
-                } else if (cavityThickness === 0) {
-                  cavityStart += layerThick;
-                }
-              });
-
-              ctx.strokeStyle = isSelected ? '#00ffaa' : '#888';
-              ctx.lineWidth = 0.75;
-
-              // End studs
-              ctx.strokeRect(0, cavityStart, studWidth, cavityThickness);
-              ctx.strokeRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
-
-              // Interior studs
-              for (let x = studSpacing; x < wallLength - studWidth; x += studSpacing) {
-                ctx.strokeRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
-              }
-            }
-
-            // Wall outline
-            ctx.strokeStyle = isSelected ? '#00ffaa' : '#aaa';
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(0, -thickness / 2, wallLength, thickness);
-
-          } else {
-            // REALISTIC MODE - Full color with textures
-            let yOffset = -thickness / 2;
-
-            // Draw each layer with realistic colors and patterns
-            wallConfig.layers.forEach(layer => {
-              const layerThickness = layer.thickness * scaleFactor;
-
-              ctx.save();
-              ctx.translate(0, yOffset);
-
-              // Base fill with realistic color
-              ctx.fillStyle = isSelected ? adjustColor(layer.color, 20) : layer.color;
-              ctx.fillRect(0, 0, wallLength, layerThickness);
-
-              // Draw pattern based on layer type
-              if (layer.pattern === 'siding') {
-                // Horizontal siding lines with shadow effect
-                ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-                ctx.lineWidth = 0.75;
-                const lineSpacing = Math.max(2, layerThickness / 3);
-                for (let y = lineSpacing; y < layerThickness; y += lineSpacing) {
-                  ctx.beginPath();
-                  ctx.moveTo(0, y);
-                  ctx.lineTo(wallLength, y);
-                  ctx.stroke();
-                  // Highlight below each line
-                  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-                  ctx.beginPath();
-                  ctx.moveTo(0, y + 0.5);
-                  ctx.lineTo(wallLength, y + 0.5);
-                  ctx.stroke();
-                  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-                }
-              } else if (layer.pattern === 'plywood') {
-                // Wood grain with panel joints
-                ctx.strokeStyle = 'rgba(101,67,33,0.4)';
-                ctx.lineWidth = 0.5;
-                // Grain lines
-                for (let y = 2; y < layerThickness; y += 3) {
-                  ctx.beginPath();
-                  ctx.moveTo(0, y + Math.sin(y) * 0.5);
-                  ctx.lineTo(wallLength, y + Math.sin(y + wallLength * 0.01) * 0.5);
-                  ctx.stroke();
-                }
-                // Panel joints every 48" (4 feet)
-                ctx.strokeStyle = 'rgba(50,30,10,0.5)';
-                ctx.lineWidth = 1;
-                const panelWidth = 48 * (GRID_SIZE / 6) / 12;
-                for (let x = panelWidth; x < wallLength; x += panelWidth) {
+            } else if (layer.pattern === 'plywood') {
+              // Wood grain lines - use pattern offset for continuity at corners
+              ctx.strokeStyle = 'rgba(139,90,43,0.3)';
+              ctx.lineWidth = 0.5;
+              const plywoodSpacing = 24;
+              const startX = -((patternOffset) % plywoodSpacing);
+              for (let x = startX; x < wallLength; x += plywoodSpacing) {
+                if (x >= 0) {
                   ctx.beginPath();
                   ctx.moveTo(x, 0);
                   ctx.lineTo(x, layerThickness);
                   ctx.stroke();
                 }
-              } else if (layer.pattern === 'insulation') {
-                // Fluffy insulation texture
-                ctx.fillStyle = 'rgba(255,200,220,0.3)';
-                const blobSize = 4;
-                for (let x = 0; x < wallLength; x += blobSize * 1.5) {
-                  for (let y = 0; y < layerThickness; y += blobSize) {
-                    const offsetX = (y / blobSize % 2) * blobSize * 0.5;
-                    ctx.beginPath();
-                    ctx.arc(x + offsetX, y + blobSize/2, blobSize * 0.4, 0, Math.PI * 2);
-                    ctx.fill();
-                  }
-                }
-              } else if (layer.pattern === 'drywall') {
-                // Subtle texture for drywall
-                ctx.fillStyle = 'rgba(200,200,200,0.1)';
-                for (let x = 0; x < wallLength; x += 12) {
-                  for (let y = 0; y < layerThickness; y += 12) {
-                    ctx.fillRect(x, y, 1, 1);
-                  }
-                }
-              } else if (layer.pattern === 'cavity') {
-                // Dark cavity
-                ctx.fillStyle = isSelected ? '#2a2a2a' : '#0a0a0a';
-                ctx.fillRect(0, 0, wallLength, layerThickness);
               }
-
-              ctx.restore();
-              yOffset += layerThickness;
-            });
-
-            // Draw studs in realistic mode
-            if (wallConfig.studs) {
-              const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
-              const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
-
-              let cavityStart = -thickness / 2;
-              let cavityThickness = 0;
-              wallConfig.layers.forEach(layer => {
-                const layerThick = layer.thickness * scaleFactor;
-                if (layer.pattern === 'cavity' || layer.pattern === 'insulation') {
-                  cavityThickness = layerThick;
-                } else if (cavityThickness === 0) {
-                  cavityStart += layerThick;
-                }
-              });
-
-              // Draw studs with wood grain
-              ctx.fillStyle = isSelected ? '#E8C888' : wallConfig.studs.color;
-
-              // End studs
-              ctx.fillRect(0, cavityStart, studWidth, cavityThickness);
-              ctx.fillRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
-
-              // Interior studs
-              for (let x = studSpacing; x < wallLength - studWidth; x += studSpacing) {
-                ctx.fillRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
+            } else if (layer.pattern === 'insulation') {
+              // Wavy insulation pattern - use offset for continuity
+              ctx.strokeStyle = 'rgba(255,150,180,0.4)';
+              ctx.lineWidth = 1;
+              const waveHeight = layerThickness * 0.3;
+              const waveSpacing = 8;
+              const startX = -((patternOffset) % waveSpacing);
+              for (let x = startX; x < wallLength; x += waveSpacing) {
+                ctx.beginPath();
+                ctx.moveTo(Math.max(0, x), layerThickness / 2 - waveHeight);
+                ctx.quadraticCurveTo(x + 4, layerThickness / 2 + waveHeight, x + waveSpacing, layerThickness / 2 - waveHeight);
+                ctx.stroke();
               }
-
-              // Wood grain on studs
-              ctx.strokeStyle = 'rgba(139,90,43,0.3)';
-              ctx.lineWidth = 0.5;
-              for (let x = studSpacing; x < wallLength - studWidth; x += studSpacing) {
-                for (let y = cavityStart + 2; y < cavityStart + cavityThickness; y += 3) {
-                  ctx.beginPath();
-                  ctx.moveTo(x - studWidth / 2, y);
-                  ctx.lineTo(x + studWidth / 2, y);
-                  ctx.stroke();
-                }
-              }
+            } else if (layer.pattern === 'cavity') {
+              // Dark cavity with stud locations
+              ctx.fillStyle = isSelected ? '#3a3a3a' : '#1a1a1a';
+              ctx.fillRect(0, 0, wallLength, layerThickness);
             }
 
-            // Wall outline
-            ctx.strokeStyle = isSelected ? '#00ffaa' : '#444';
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(0, -thickness / 2, wallLength, thickness);
+            ctx.restore();
+            yOffset += layerThickness;
+          });
+
+          // Draw studs in detailed mode - use offset for continuity at corners
+          if (wallConfig.studs) {
+            const studSpacing = wallConfig.studs.spacing * (GRID_SIZE / 6) / 12 * scaleFactor;
+            const studWidth = wallConfig.studs.width * (GRID_SIZE / 6) / 12 * scaleFactor;
+            const studDepth = wallConfig.studs.depth * scaleFactor;
+
+            // Find the cavity layer position
+            let cavityStart = -thickness / 2;
+            let cavityThickness = 0;
+            wallConfig.layers.forEach(layer => {
+              const layerThick = layer.thickness * scaleFactor;
+              if (layer.pattern === 'cavity' || layer.pattern === 'insulation') {
+                cavityThickness = layerThick;
+              } else if (cavityThickness === 0) {
+                cavityStart += layerThick;
+              }
+            });
+
+            // Draw studs with offset based on global position
+            ctx.fillStyle = isSelected ? '#E8C888' : wallConfig.studs.color;
+            const studStartOffset = (patternOffset % studSpacing);
+
+            // End stud at start
+            ctx.fillRect(0, cavityStart, studWidth, cavityThickness);
+
+            // Interior studs - offset for continuity
+            const firstStudX = studSpacing - studStartOffset;
+            for (let x = firstStudX; x < wallLength - studWidth; x += studSpacing) {
+              ctx.fillRect(x - studWidth / 2, cavityStart, studWidth, cavityThickness);
+            }
+
+            // End stud at end
+            ctx.fillRect(wallLength - studWidth, cavityStart, studWidth, cavityThickness);
           }
+
+          // Draw outline
+          ctx.strokeStyle = isSelected ? '#00ffaa' : '#555';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(0, -thickness / 2, wallLength, thickness);
         }
         
         ctx.restore();
@@ -6036,87 +5423,8 @@ function FloorPlanPro() {
           ctx.stroke();
         }
       });
-
-      // Draw corner caps for detailed mode to clean up wall intersections
-      if (wallDetailLevel === 'detailed' || wallDetailLevel === 'standard') {
-        const walls = activeFloor.walls || [];
-        const cornerThreshold = 5; // How close endpoints need to be to form a corner
-
-        // Find all corner connections
-        walls.forEach((wall1, i) => {
-          walls.forEach((wall2, j) => {
-            if (i >= j) return; // Avoid duplicates
-
-            const thickness1 = WALL_THICKNESS_OPTIONS[wall1.type]?.thickness || 8;
-            const thickness2 = WALL_THICKNESS_OPTIONS[wall2.type]?.thickness || 8;
-            const maxThickness = Math.max(thickness1, thickness2);
-
-            // Check all endpoint combinations
-            const endpoints = [
-              { p1: wall1.start, p2: wall2.start },
-              { p1: wall1.start, p2: wall2.end },
-              { p1: wall1.end, p2: wall2.start },
-              { p1: wall1.end, p2: wall2.end },
-            ];
-
-            endpoints.forEach(({ p1, p2 }) => {
-              const dist = Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
-              if (dist < cornerThreshold) {
-                // Found a corner - draw a corner cap
-                const cornerX = (p1.x + p2.x) / 2;
-                const cornerY = (p1.y + p2.y) / 2;
-
-                // Get wall configurations
-                const config1 = WALL_LAYERS[wall1.type] || WALL_LAYERS['interior'];
-                const config2 = WALL_LAYERS[wall2.type] || WALL_LAYERS['interior'];
-
-                if (wallDetailLevel === 'detailed' && renderMode === 'realistic') {
-                  // Realistic corner cap - use the outermost layer color
-                  const outerColor = config1.layers[0]?.color || '#8B7355';
-                  ctx.fillStyle = outerColor;
-                  ctx.beginPath();
-                  ctx.arc(cornerX, cornerY, maxThickness / 2 + 1, 0, Math.PI * 2);
-                  ctx.fill();
-
-                  // Inner fill matching interior
-                  const innerColor = config1.layers[config1.layers.length - 1]?.color || '#E8E4DF';
-                  ctx.fillStyle = innerColor;
-                  ctx.beginPath();
-                  ctx.arc(cornerX, cornerY, maxThickness / 2 - 2, 0, Math.PI * 2);
-                  ctx.fill();
-                } else if (wallDetailLevel === 'detailed' && renderMode === 'linework') {
-                  // Line work corner cap - clean outline
-                  ctx.fillStyle = '#1a1a1a';
-                  ctx.beginPath();
-                  ctx.arc(cornerX, cornerY, maxThickness / 2 + 1, 0, Math.PI * 2);
-                  ctx.fill();
-
-                  ctx.strokeStyle = '#aaa';
-                  ctx.lineWidth = 1.5;
-                  ctx.beginPath();
-                  ctx.arc(cornerX, cornerY, maxThickness / 2 + 1, 0, Math.PI * 2);
-                  ctx.stroke();
-                } else {
-                  // Standard mode corner cap
-                  const outerColor = config1.layers[0]?.color || '#8B7355';
-                  ctx.fillStyle = outerColor;
-                  ctx.beginPath();
-                  ctx.arc(cornerX, cornerY, maxThickness / 2, 0, Math.PI * 2);
-                  ctx.fill();
-
-                  ctx.strokeStyle = '#888';
-                  ctx.lineWidth = 1;
-                  ctx.beginPath();
-                  ctx.arc(cornerX, cornerY, maxThickness / 2, 0, Math.PI * 2);
-                  ctx.stroke();
-                }
-              }
-            });
-          });
-        });
-      }
     }
-
+    
     // Draw doors
     if (layers.doors.visible) {
     activeFloor.doors.forEach(door => {
@@ -7262,73 +6570,9 @@ function FloorPlanPro() {
         ctx.fillText(`${formatMeasurement(pixelsToFeet(w))} × ${formatMeasurement(pixelsToFeet(h))}`, x + w / 2, y + h / 2 - 10);
         ctx.font = '11px sans-serif';
         ctx.fillText(porchDef.name, x + w / 2, y + h / 2 + 8);
-      } else if (tool === 'roof') {
-        const x = Math.min(drawStart.x, drawEnd.x);
-        const y = Math.min(drawStart.y, drawEnd.y);
-        const w = Math.abs(drawEnd.x - drawStart.x);
-        const h = Math.abs(drawEnd.y - drawStart.y);
-        const roofDef = ROOF_TYPES[roofType] || ROOF_TYPES.gable;
-        const overhang = roofOverhang * (GRID_SIZE / 6) / 12;
-
-        // Building footprint
-        ctx.fillStyle = 'rgba(139,90,43,0.15)';
-        ctx.fillRect(x, y, w, h);
-
-        // Roof outline with overhang (dashed)
-        ctx.strokeStyle = '#8b5a2b';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([8, 4]);
-        ctx.strokeRect(x - overhang, y - overhang, w + overhang * 2, h + overhang * 2);
-        ctx.setLineDash([]);
-
-        // Building footprint outline (solid)
-        ctx.strokeStyle = 'rgba(139,90,43,0.6)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, y, w, h);
-
-        // Ridge line preview
-        ctx.strokeStyle = '#8b5a2b';
-        ctx.lineWidth = 2;
-        if (roofType === 'gable' || roofType === 'gambrel') {
-          if (w > h) {
-            // Horizontal ridge
-            ctx.beginPath();
-            ctx.moveTo(x - overhang, y + h / 2);
-            ctx.lineTo(x + w + overhang, y + h / 2);
-            ctx.stroke();
-          } else {
-            // Vertical ridge
-            ctx.beginPath();
-            ctx.moveTo(x + w / 2, y - overhang);
-            ctx.lineTo(x + w / 2, y + h + overhang);
-            ctx.stroke();
-          }
-        } else if (roofType === 'hip') {
-          const centerX = x + w / 2;
-          const centerY = y + h / 2;
-          // Draw hip lines to corners
-          ctx.beginPath();
-          ctx.moveTo(centerX, centerY);
-          ctx.lineTo(x - overhang, y - overhang);
-          ctx.moveTo(centerX, centerY);
-          ctx.lineTo(x + w + overhang, y - overhang);
-          ctx.moveTo(centerX, centerY);
-          ctx.lineTo(x - overhang, y + h + overhang);
-          ctx.moveTo(centerX, centerY);
-          ctx.lineTo(x + w + overhang, y + h + overhang);
-          ctx.stroke();
-        }
-
-        // Show dimensions and type
-        ctx.fillStyle = '#8b5a2b';
-        ctx.font = 'bold 12px "SF Mono", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`${formatMeasurement(pixelsToFeet(w))} × ${formatMeasurement(pixelsToFeet(h))}`, x + w / 2, y + h / 2 - 10);
-        ctx.font = '11px sans-serif';
-        ctx.fillText(`${roofDef.label} Roof`, x + w / 2, y + h / 2 + 8);
       }
     }
-
+    
     // Draw plumbing line in progress
     if (plumbingLineStart && tool === 'plumbing-line') {
       const pos = getPointerPos({ clientX: 0, clientY: 0 }); // Will update on move
@@ -8205,74 +7449,25 @@ function FloorPlanPro() {
           </button>
         )}
         
-        {/* Desktop: Tabbed toolbar */}
+        {/* Desktop: Full toolbar */}
         {!isMobile && (
           <>
-            {/* Tool Tabs */}
-            <div style={{ display: 'flex', gap: '2px', marginRight: '8px' }}>
-              {[
-                { id: 'draw', label: 'Draw', icon: '✏️' },
-                { id: 'modify', label: 'Modify', icon: '🔧' },
-                { id: 'annotate', label: 'Annotate', icon: '📝' },
-                { id: 'view', label: 'View', icon: '👁️' },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setToolTab(tab.id)}
-                  style={{
-                    padding: '6px 10px',
-                    background: toolTab === tab.id ? 'rgba(0,200,255,0.15)' : 'transparent',
-                    border: 'none',
-                    borderBottom: toolTab === tab.id ? '2px solid #00c8ff' : '2px solid transparent',
-                    color: toolTab === tab.id ? '#00c8ff' : '#6080a0',
-                    fontSize: '10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <span style={{ fontSize: '12px' }}>{tab.icon}</span>
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Tab-specific tools */}
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '8px' }}>
-              {toolTab === 'draw' && (
-                <>
-                  <ToolButton name="wall" icon="▭" label="WALL" />
-                  <ToolButton name="door" icon="🚪" label="DOOR" />
-                  <ToolButton name="window" icon="⊞" label="WINDOW" />
-                  <ToolButton name="room" icon="⬜" label="ROOM" />
-                  <ToolButton name="roof" icon="🏠" label="ROOF" />
-                  <ToolButton name="line" icon="╱" label="LINE" />
-                </>
-              )}
-              {toolTab === 'modify' && (
-                <>
-                  <ToolButton name="select" icon="↖" label="SELECT" />
-                  <ToolButton name="move" icon="✥" label="MOVE" />
-                  <ToolButton name="rotate" icon="↻" label="ROTATE" />
-                  <ToolButton name="extend" icon="⟼" label="EXTEND" />
-                  <ToolButton name="trim" icon="✂" label="TRIM" />
-                  <ToolButton name="corner" icon="⌐" label="CORNER" />
-                </>
-              )}
-              {toolTab === 'annotate' && (
-                <>
-                  <ToolButton name="text" icon="T" label="TEXT" />
-                  <ToolButton name="dimension" icon="↔" label="DIM" />
-                  <ToolButton name="measure" icon="📏" label="MEASURE" />
-                </>
-              )}
-              {toolTab === 'view' && (
-                <>
-                  <ToolButton name="pan" icon="✋" label="PAN" />
-                  <ToolButton name="select" icon="↖" label="SELECT" />
-                </>
-              )}
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+              <ToolButton name="select" icon="↖" label="SELECT" />
+              <ToolButton name="move" icon="✥" label="MOVE" />
+              <ToolButton name="rotate" icon="↻" label="ROTATE" />
+              <ToolButton name="wall" icon="▭" label="WALL" />
+              <ToolButton name="door" icon="🚪" label="DOOR" />
+              <ToolButton name="window" icon="⊞" label="WINDOW" />
+              <ToolButton name="room" icon="⬜" label="ROOM" />
+              <ToolButton name="line" icon="╱" label="LINE" />
+              <ToolButton name="text" icon="T" label="TEXT" />
+              <ToolButton name="measure" icon="📏" label="MEASURE" />
+              <ToolButton name="dimension" icon="↔" label="DIMENSION" />
+              <ToolButton name="extend" icon="⟼" label="EXTEND" />
+              <ToolButton name="trim" icon="✂" label="TRIM" />
+              <ToolButton name="corner" icon="⌐" label="CORNER" />
+              <ToolButton name="pan" icon="✋" label="PAN" />
             </div>
             
             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -8341,174 +7536,82 @@ function FloorPlanPro() {
             </div>
           </div>
           
-          {/* Tool Tabs for Mobile */}
+          {/* Drawing Tools */}
           <div style={{ marginBottom: '16px' }}>
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', overflowX: 'auto' }}>
+            <div style={{ color: '#6080a0', fontSize: '11px', marginBottom: '8px' }}>DRAWING TOOLS</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
               {[
-                { id: 'draw', label: 'Draw', icon: '✏️' },
-                { id: 'modify', label: 'Modify', icon: '🔧' },
-                { id: 'annotate', label: 'Annotate', icon: '📝' },
-                { id: 'objects', label: 'Objects', icon: '🪑' },
-              ].map(tab => (
+                { name: 'select', icon: '↖', label: 'Select' },
+                { name: 'move', icon: '✥', label: 'Move' },
+                { name: 'rotate', icon: '↻', label: 'Rotate' },
+                { name: 'wall', icon: '▭', label: 'Wall' },
+                { name: 'door', icon: '🚪', label: 'Door' },
+                { name: 'window', icon: '⊞', label: 'Window' },
+                { name: 'room', icon: '⬜', label: 'Room' },
+                { name: 'line', icon: '╱', label: 'Line' },
+                { name: 'text', icon: 'T', label: 'Text' },
+                { name: 'measure', icon: '📏', label: 'Measure' },
+                { name: 'dimension', icon: '↔', label: 'Dimension' },
+                { name: 'extend', icon: '⟼', label: 'Extend' },
+                { name: 'trim', icon: '✂', label: 'Trim' },
+                { name: 'corner', icon: '⌐', label: 'Corner' },
+                { name: 'pan', icon: '✋', label: 'Pan' },
+              ].map(t => (
                 <button
-                  key={tab.id}
-                  onClick={() => setToolTab(tab.id)}
+                  key={t.name}
+                  onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
                   style={{
-                    padding: '10px 16px',
-                    background: toolTab === tab.id ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${toolTab === tab.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                    borderRadius: '8px',
-                    color: toolTab === tab.id ? '#00c8ff' : '#8899aa',
+                    padding: '14px',
+                    background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '10px',
+                    color: tool === t.name ? '#00c8ff' : '#8899aa',
                     fontSize: '12px',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '6px',
-                    whiteSpace: 'nowrap',
+                    gap: '4px',
                   }}
                 >
-                  <span style={{ fontSize: '16px' }}>{tab.icon}</span>
-                  {tab.label}
+                  <span style={{ fontSize: '20px' }}>{t.icon}</span>
+                  {t.label}
                 </button>
               ))}
             </div>
-
-            {/* Draw Tools */}
-            {toolTab === 'draw' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                {[
-                  { name: 'wall', icon: '▭', label: 'Wall' },
-                  { name: 'door', icon: '🚪', label: 'Door' },
-                  { name: 'window', icon: '⊞', label: 'Window' },
-                  { name: 'room', icon: '⬜', label: 'Room' },
-                  { name: 'roof', icon: '🏠', label: 'Roof' },
-                  { name: 'line', icon: '╱', label: 'Line' },
-                ].map(t => (
-                  <button
-                    key={t.name}
-                    onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
-                    style={{
-                      padding: '14px',
-                      background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '10px',
-                      color: tool === t.name ? '#00c8ff' : '#8899aa',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ fontSize: '20px' }}>{t.icon}</span>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Modify Tools */}
-            {toolTab === 'modify' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                {[
-                  { name: 'select', icon: '↖', label: 'Select' },
-                  { name: 'move', icon: '✥', label: 'Move' },
-                  { name: 'rotate', icon: '↻', label: 'Rotate' },
-                  { name: 'extend', icon: '⟼', label: 'Extend' },
-                  { name: 'trim', icon: '✂', label: 'Trim' },
-                  { name: 'corner', icon: '⌐', label: 'Corner' },
-                  { name: 'pan', icon: '✋', label: 'Pan' },
-                ].map(t => (
-                  <button
-                    key={t.name}
-                    onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
-                    style={{
-                      padding: '14px',
-                      background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '10px',
-                      color: tool === t.name ? '#00c8ff' : '#8899aa',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ fontSize: '20px' }}>{t.icon}</span>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Annotate Tools */}
-            {toolTab === 'annotate' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                {[
-                  { name: 'text', icon: 'T', label: 'Text' },
-                  { name: 'dimension', icon: '↔', label: 'Dimension' },
-                  { name: 'measure', icon: '📏', label: 'Measure' },
-                ].map(t => (
-                  <button
-                    key={t.name}
-                    onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
-                    style={{
-                      padding: '14px',
-                      background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '10px',
-                      color: tool === t.name ? '#00c8ff' : '#8899aa',
-                      fontSize: '12px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <span style={{ fontSize: '20px' }}>{t.icon}</span>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Objects */}
-            {toolTab === 'objects' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-                {[
-                  { panel: 'furniture', icon: '🪑', label: 'Furniture' },
-                  { panel: 'stairs', icon: '🪜', label: 'Stairs' },
-                  { panel: 'electrical', icon: '⚡', label: 'Electrical' },
-                  { panel: 'plumbing', icon: '🔵', label: 'Plumbing' },
-                  { panel: 'hatch', icon: '▨', label: 'Hatch' },
-                  { panel: 'porch', icon: '🏠', label: 'Porch' },
-                ].map(p => (
-                  <button
-                    key={p.panel}
-                    onClick={() => { setActivePanel(p.panel); setShowMobileMenu(false); }}
-                    style={{
-                      padding: '14px',
-                      background: activePanel === p.panel ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${activePanel === p.panel ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '10px',
-                      color: activePanel === p.panel ? '#00c8ff' : '#8899aa',
-                      fontSize: '14px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                    }}
-                  >
-                    <span style={{ fontSize: '22px' }}>{p.icon}</span>
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            )}
+          </div>
+          
+          {/* Objects */}
+          <div style={{ marginBottom: '16px' }}>
+            <div style={{ color: '#6080a0', fontSize: '11px', marginBottom: '8px' }}>ADD OBJECTS</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+              {[
+                { panel: 'furniture', icon: '🪑', label: 'Furniture' },
+                { panel: 'stairs', icon: '🪜', label: 'Stairs' },
+                { panel: 'electrical', icon: '⚡', label: 'Electrical' },
+                { panel: 'plumbing', icon: '🔵', label: 'Plumbing' },
+              ].map(p => (
+                <button
+                  key={p.panel}
+                  onClick={() => { setActivePanel(p.panel); setShowMobileMenu(false); }}
+                  style={{
+                    padding: '14px',
+                    background: activePanel === p.panel ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${activePanel === p.panel ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '10px',
+                    color: activePanel === p.panel ? '#00c8ff' : '#8899aa',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span style={{ fontSize: '22px' }}>{p.icon}</span>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
           
           {/* Actions */}
@@ -8858,51 +7961,6 @@ function FloorPlanPro() {
             ))}
           </div>
         )}
-
-        {tool === 'roof' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ color: '#6080a0', fontSize: '10px' }}>Type:</span>
-              {Object.entries(ROOF_TYPES).slice(0, 4).map(([type, config]) => (
-                <button
-                  key={type}
-                  onClick={() => setRoofType(type)}
-                  style={{
-                    padding: '3px 6px',
-                    background: roofType === type ? 'rgba(0,200,255,0.2)' : 'transparent',
-                    border: `1px solid ${roofType === type ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                    borderRadius: '4px',
-                    color: roofType === type ? '#00c8ff' : '#6080a0',
-                    fontSize: '9px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {config.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ color: '#6080a0', fontSize: '10px' }}>Pitch:</span>
-              <select
-                value={roofPitch}
-                onChange={(e) => setRoofPitch(e.target.value)}
-                style={{
-                  padding: '3px 6px',
-                  background: '#1a2028',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '4px',
-                  color: '#00c8ff',
-                  fontSize: '9px',
-                  cursor: 'pointer',
-                }}
-              >
-                {Object.entries(ROOF_PITCHES).map(([key, def]) => (
-                  <option key={key} value={key}>{def.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
         
         {tool === 'plumbing-line' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -8922,7 +7980,7 @@ function FloorPlanPro() {
           </button>
         )}
         
-        {!['wall', 'roof', 'measure', 'plumbing-line'].includes(tool) && <div />}
+        {!['wall', 'measure', 'plumbing-line'].includes(tool) && <div />}
         
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
           <button onClick={duplicateFloor} style={{ padding: '3px 8px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: '#6080a0', fontSize: '9px', cursor: 'pointer' }}>Clone Floor</button>
@@ -10539,46 +9597,9 @@ function FloorPlanPro() {
                   </div>
                 </div>
               </div>
-
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '10px', marginTop: '10px' }}>
-                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '6px' }}>Render Mode</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '4px' }}>
-                  <button
-                    onClick={() => setRenderMode('linework')}
-                    style={{
-                      padding: '6px 4px',
-                      background: renderMode === 'linework' ? 'rgba(0,200,255,0.2)' : 'transparent',
-                      border: `1px solid ${renderMode === 'linework' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '4px',
-                      color: renderMode === 'linework' ? '#00c8ff' : '#8899aa',
-                      fontSize: '9px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Line Work
-                  </button>
-                  <button
-                    onClick={() => setRenderMode('realistic')}
-                    style={{
-                      padding: '6px 4px',
-                      background: renderMode === 'realistic' ? 'rgba(0,200,255,0.2)' : 'transparent',
-                      border: `1px solid ${renderMode === 'realistic' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '4px',
-                      color: renderMode === 'realistic' ? '#00c8ff' : '#8899aa',
-                      fontSize: '9px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Realistic
-                  </button>
-                </div>
-                <div style={{ color: '#6080a0', fontSize: '8px', marginTop: '6px' }}>
-                  {renderMode === 'linework' ? 'Clean CAD-style line drawings' : 'Textured walls with materials'}
-                </div>
-              </div>
             </div>
           )}
-
+          
           {/* Layers Panel */}
           {showLayersPanel && (
             <div style={{
@@ -10928,239 +9949,93 @@ function FloorPlanPro() {
               <div style={{
                 background: 'rgba(8,12,16,0.98)',
                 borderBottom: '1px solid rgba(0,200,255,0.2)',
-                padding: isMobile ? '6px 10px' : '8px 16px',
+                padding: '8px 16px',
                 display: 'flex',
-                flexDirection: isMobile ? 'column' : 'row',
-                alignItems: isMobile ? 'stretch' : 'center',
-                gap: isMobile ? '8px' : '12px',
+                alignItems: 'center',
+                gap: '12px',
                 flexShrink: 0,
               }}>
-                {/* Top row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '12px' }}>
+                <button
+                  onClick={() => setViewMode('model')}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'rgba(0,200,255,0.1)',
+                    border: '1px solid rgba(0,200,255,0.3)',
+                    borderRadius: '4px',
+                    color: '#00c8ff',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ← Back to Model Space
+                </button>
+                
+                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                  📄 {activeSheet.sheetNumber} - {activeSheet.sheetTitle}
+                </span>
+                
+                <span style={{ color: '#6080a0', fontSize: '10px' }}>
+                  {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size} | Scale: {activeSheet.scale}
+                </span>
+                
+                <div style={{ flex: 1 }} />
+                
+                {/* Zoom controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
-                    onClick={() => setViewMode('model')}
-                    style={{
-                      padding: isMobile ? '6px 8px' : '6px 12px',
-                      background: 'rgba(0,200,255,0.1)',
-                      border: '1px solid rgba(0,200,255,0.3)',
-                      borderRadius: '4px',
-                      color: '#00c8ff',
-                      fontSize: isMobile ? '10px' : '11px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ← Back
-                  </button>
-
-                  {!isMobile && (
-                    <>
-                      <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
-                        📄 {activeSheet.sheetNumber} - {activeSheet.sheetTitle}
-                      </span>
-
-                      <span style={{ color: '#6080a0', fontSize: '10px' }}>
-                        {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size} | Scale: {activeSheet.scale}
-                      </span>
-                    </>
-                  )}
-                  {isMobile && (
-                    <span style={{ color: '#fff', fontSize: '10px', fontWeight: '500' }}>
-                      📄 {activeSheet.sheetNumber}
-                    </span>
-                  )}
-
-                  {!isMobile && <div style={{ flex: 1 }} />}
-
-                  {/* Desktop zoom controls inline */}
-                  {!isMobile && (
-                    <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          onClick={() => setPaperZoom(z => Math.max(0.1, z - 0.1))}
-                          style={{
-                            padding: '6px 12px',
-                            background: 'rgba(255,255,255,0.15)',
-                            border: '1px solid rgba(255,255,255,0.3)',
-                            borderRadius: '6px',
-                            color: '#fff',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: 'bold',
-                          }}
-                        >−</button>
-                        <span style={{ color: '#fff', fontSize: '11px', minWidth: '50px', textAlign: 'center' }}>
-                          {Math.round(paperZoom * 100)}%
-                        </span>
-                        <button
-                          onClick={() => setPaperZoom(z => Math.min(2, z + 0.1))}
-                          style={{
-                            padding: '6px 12px',
-                            background: 'rgba(255,255,255,0.15)',
-                            border: '1px solid rgba(255,255,255,0.3)',
-                            borderRadius: '6px',
-                            color: '#fff',
-                            cursor: 'pointer',
-                            fontSize: '14px',
-                            fontWeight: 'bold',
-                          }}
-                        >+</button>
-                        <button
-                          onClick={() => {
-                            setPaperZoom(0.4);
-                            setPaperPan({ x: 0, y: 0 });
-                          }}
-                          style={{
-                            padding: '6px 10px',
-                            background: 'rgba(0,200,255,0.2)',
-                            border: '1px solid rgba(0,200,255,0.4)',
-                            borderRadius: '6px',
-                            color: '#00c8ff',
-                            cursor: 'pointer',
-                            fontSize: '10px',
-                            fontWeight: '600',
-                          }}
-                        >Fit</button>
-                      </div>
-
-                      <button
-                        onClick={() => window.print()}
-                        style={{
-                          padding: '6px 12px',
-                          background: 'rgba(0,200,255,0.2)',
-                          border: '1px solid rgba(0,200,255,0.4)',
-                          borderRadius: '4px',
-                          color: '#00c8ff',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        🖨️ Print
-                      </button>
-                    </>
-                  )}
+                    onClick={() => setPaperZoom(z => Math.max(0.1, z - 0.1))}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
+                  >−</button>
+                  <span style={{ color: '#fff', fontSize: '11px', minWidth: '50px', textAlign: 'center' }}>
+                    {Math.round(paperZoom * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setPaperZoom(z => Math.min(2, z + 0.1))}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
+                  >+</button>
+                  <button
+                    onClick={() => setPaperZoom(0.4)}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '10px' }}
+                  >Fit</button>
                 </div>
-
-                {/* Mobile zoom controls - separate row */}
-                {isMobile && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                    <button
-                      onClick={() => setPaperZoom(z => Math.max(0.1, z - 0.1))}
-                      style={{
-                        padding: '10px 16px',
-                        background: 'rgba(255,255,255,0.15)',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        borderRadius: '6px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: '20px',
-                        fontWeight: 'bold',
-                        minWidth: '48px',
-                      }}
-                    >−</button>
-                    <span style={{ color: '#fff', fontSize: '14px', minWidth: '60px', textAlign: 'center', fontWeight: '500' }}>
-                      {Math.round(paperZoom * 100)}%
-                    </span>
-                    <button
-                      onClick={() => setPaperZoom(z => Math.min(2, z + 0.1))}
-                      style={{
-                        padding: '10px 16px',
-                        background: 'rgba(255,255,255,0.15)',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        borderRadius: '6px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: '20px',
-                        fontWeight: 'bold',
-                        minWidth: '48px',
-                      }}
-                    >+</button>
-                    <button
-                      onClick={() => {
-                        setPaperZoom(0.25);
-                        setPaperPan({ x: 0, y: 0 });
-                      }}
-                      style={{
-                        padding: '10px 14px',
-                        background: 'rgba(0,200,255,0.2)',
-                        border: '1px solid rgba(0,200,255,0.4)',
-                        borderRadius: '6px',
-                        color: '#00c8ff',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                      }}
-                    >Fit</button>
-                    <button
-                      onClick={() => window.print()}
-                      style={{
-                        padding: '10px 14px',
-                        background: 'rgba(0,200,255,0.2)',
-                        border: '1px solid rgba(0,200,255,0.4)',
-                        borderRadius: '6px',
-                        color: '#00c8ff',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                      }}
-                    >🖨️</button>
-                  </div>
-                )}
+                
+                <button
+                  onClick={() => window.print()}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'rgba(0,200,255,0.2)',
+                    border: '1px solid rgba(0,200,255,0.4)',
+                    borderRadius: '4px',
+                    color: '#00c8ff',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  🖨️ Print
+                </button>
               </div>
-
-              {/* Paper Preview Area - with pan/zoom */}
-              <div
-                style={{
-                  flex: 1,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  touchAction: 'none',
-                  cursor: isPaperPanning ? 'grabbing' : 'grab',
-                }}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  setIsPaperPanning(true);
-                  setPaperPanStart({ x: e.clientX - paperPan.x, y: e.clientY - paperPan.y });
-                }}
-                onPointerMove={(e) => {
-                  if (isPaperPanning && paperPanStart) {
-                    setPaperPan({
-                      x: e.clientX - paperPanStart.x,
-                      y: e.clientY - paperPanStart.y,
-                    });
-                  }
-                }}
-                onPointerUp={(e) => {
-                  e.currentTarget.releasePointerCapture(e.pointerId);
-                  setIsPaperPanning(false);
-                  setPaperPanStart(null);
-                }}
-                onPointerCancel={(e) => {
-                  setIsPaperPanning(false);
-                  setPaperPanStart(null);
-                }}
-                onWheel={(e) => {
-                  e.preventDefault();
-                  const delta = e.deltaY > 0 ? -0.05 : 0.05;
-                  setPaperZoom(z => Math.max(0.1, Math.min(2, z + delta)));
-                }}
-              >
+              
+              {/* Paper Preview Area - Scrollable */}
+              <div style={{
+                flex: 1,
+                overflow: 'auto',
+                padding: '40px',
+              }}>
                 <div style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: `translate(calc(-50% + ${paperPan.x}px), calc(-50% + ${paperPan.y}px)) scale(${paperZoom})`,
-                  transformOrigin: 'center center',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  minHeight: '100%',
                 }}>
                   {/* Paper Sheet Container */}
-                  <div
+                  <div 
                     id="print-sheet"
                     style={{
-                      width: activeSheet.orientation === 'landscape'
+                      width: (activeSheet.orientation === 'landscape' 
                         ? PAPER_SIZES[activeSheet.size]?.width || 1056
-                        : PAPER_SIZES[activeSheet.size]?.height || 816,
-                      height: activeSheet.orientation === 'landscape'
+                        : PAPER_SIZES[activeSheet.size]?.height || 816) * paperZoom,
+                      height: (activeSheet.orientation === 'landscape'
                         ? PAPER_SIZES[activeSheet.size]?.height || 816
-                        : PAPER_SIZES[activeSheet.size]?.width || 1056,
+                        : PAPER_SIZES[activeSheet.size]?.width || 1056) * paperZoom,
                       background: '#fff',
                       boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
                       position: 'relative',
@@ -11170,7 +10045,7 @@ function FloorPlanPro() {
                     {/* Drawing Canvas */}
                     <canvas
                       ref={paperCanvasRef}
-                      width={(activeSheet.orientation === 'landscape'
+                      width={(activeSheet.orientation === 'landscape' 
                         ? PAPER_SIZES[activeSheet.size]?.width || 1056
                         : PAPER_SIZES[activeSheet.size]?.height || 816)}
                       height={(activeSheet.orientation === 'landscape'
@@ -11183,23 +10058,6 @@ function FloorPlanPro() {
                     />
                   </div>
                 </div>
-
-                {/* Mobile hint */}
-                {isMobile && (
-                  <div style={{
-                    position: 'absolute',
-                    bottom: '10px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    background: 'rgba(0,0,0,0.7)',
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    color: '#8899aa',
-                    fontSize: '10px',
-                  }}>
-                    Drag to pan • Use +/- to zoom
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -11221,243 +10079,77 @@ function FloorPlanPro() {
               <div style={{
                 background: 'rgba(8,12,16,0.98)',
                 borderBottom: '1px solid rgba(0,200,255,0.2)',
-                padding: isMobile ? '6px 10px' : '8px 16px',
+                padding: '8px 16px',
                 display: 'flex',
-                flexDirection: isMobile ? 'column' : 'row',
-                alignItems: isMobile ? 'stretch' : 'center',
-                gap: isMobile ? '8px' : '12px',
+                alignItems: 'center',
+                gap: '12px',
                 flexShrink: 0,
               }}>
-                {/* Top row on mobile: Back + Direction + Spacer */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '12px' }}>
-                  <button
-                    onClick={() => setViewMode('model')}
-                    style={{
-                      padding: isMobile ? '6px 8px' : '6px 12px',
-                      background: 'rgba(0,200,255,0.1)',
-                      border: '1px solid rgba(0,200,255,0.3)',
-                      borderRadius: '4px',
-                      color: '#00c8ff',
-                      fontSize: isMobile ? '10px' : '11px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ← Back
-                  </button>
+                <button
+                  onClick={() => setViewMode('model')}
+                  style={{
+                    padding: '6px 12px',
+                    background: 'rgba(0,200,255,0.1)',
+                    border: '1px solid rgba(0,200,255,0.3)',
+                    borderRadius: '4px',
+                    color: '#00c8ff',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ← Back to Model Space
+                </button>
 
-                  {!isMobile && (
-                    <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
-                      🏠 Elevation Views
-                    </span>
-                  )}
+                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                  🏠 Elevation Views
+                </span>
 
-                  {/* Elevation Direction Controls */}
-                  <div style={{ display: 'flex', gap: '3px' }}>
-                    {['north', 'south', 'east', 'west'].map(dir => (
-                      <button
-                        key={dir}
-                        onClick={() => setActiveElevation(dir)}
-                        style={{
-                          padding: isMobile ? '6px 8px' : '6px 12px',
-                          background: activeElevation === dir ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                          border: `1px solid ${activeElevation === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                          borderRadius: '4px',
-                          color: activeElevation === dir ? '#00c8ff' : '#6080a0',
-                          fontSize: isMobile ? '9px' : '10px',
-                          cursor: 'pointer',
-                          fontWeight: activeElevation === dir ? '600' : '400',
-                          textTransform: 'uppercase',
-                        }}
-                      >
-                        {dir.charAt(0)}
-                      </button>
-                    ))}
-                  </div>
+                <div style={{ flex: 1 }} />
 
-                  {!isMobile && <div style={{ flex: 1 }} />}
-
-                  {/* Desktop zoom controls inline */}
-                  {!isMobile && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <button
-                        onClick={() => setElevationZoom(z => Math.max(0.2, z - 0.15))}
-                        style={{
-                          padding: '6px 12px',
-                          background: 'rgba(255,255,255,0.15)',
-                          border: '1px solid rgba(255,255,255,0.3)',
-                          borderRadius: '6px',
-                          color: '#fff',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          fontWeight: 'bold',
-                        }}
-                      >−</button>
-                      <span style={{ color: '#fff', fontSize: '11px', minWidth: '50px', textAlign: 'center' }}>
-                        {Math.round(elevationZoom * 100)}%
-                      </span>
-                      <button
-                        onClick={() => setElevationZoom(z => Math.min(3, z + 0.15))}
-                        style={{
-                          padding: '6px 12px',
-                          background: 'rgba(255,255,255,0.15)',
-                          border: '1px solid rgba(255,255,255,0.3)',
-                          borderRadius: '6px',
-                          color: '#fff',
-                          cursor: 'pointer',
-                          fontSize: '14px',
-                          fontWeight: 'bold',
-                        }}
-                      >+</button>
-                      <button
-                        onClick={() => {
-                          setElevationZoom(0.6);
-                          setElevationPan({ x: 0, y: 0 });
-                        }}
-                        style={{
-                          padding: '6px 10px',
-                          background: 'rgba(0,200,255,0.2)',
-                          border: '1px solid rgba(0,200,255,0.4)',
-                          borderRadius: '6px',
-                          color: '#00c8ff',
-                          cursor: 'pointer',
-                          fontSize: '10px',
-                          fontWeight: '600',
-                        }}
-                      >Fit</button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Mobile zoom controls - separate row */}
-                {isMobile && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                {/* Elevation Direction Controls */}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {['north', 'south', 'east', 'west'].map(dir => (
                     <button
-                      onClick={() => setElevationZoom(z => Math.max(0.2, z - 0.15))}
+                      key={dir}
+                      onClick={() => setActiveElevation(dir)}
                       style={{
-                        padding: '10px 16px',
-                        background: 'rgba(255,255,255,0.15)',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        borderRadius: '6px',
-                        color: '#fff',
+                        padding: '6px 12px',
+                        background: activeElevation === dir ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${activeElevation === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: '4px',
+                        color: activeElevation === dir ? '#00c8ff' : '#6080a0',
+                        fontSize: '10px',
                         cursor: 'pointer',
-                        fontSize: '20px',
-                        fontWeight: 'bold',
-                        minWidth: '48px',
+                        fontWeight: activeElevation === dir ? '600' : '400',
+                        textTransform: 'capitalize',
                       }}
-                    >−</button>
-                    <span style={{ color: '#fff', fontSize: '14px', minWidth: '60px', textAlign: 'center', fontWeight: '500' }}>
-                      {Math.round(elevationZoom * 100)}%
-                    </span>
-                    <button
-                      onClick={() => setElevationZoom(z => Math.min(3, z + 0.15))}
-                      style={{
-                        padding: '10px 16px',
-                        background: 'rgba(255,255,255,0.15)',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        borderRadius: '6px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: '20px',
-                        fontWeight: 'bold',
-                        minWidth: '48px',
-                      }}
-                    >+</button>
-                    <button
-                      onClick={() => {
-                        setElevationZoom(0.35);
-                        setElevationPan({ x: 0, y: 0 });
-                      }}
-                      style={{
-                        padding: '10px 14px',
-                        background: 'rgba(0,200,255,0.2)',
-                        border: '1px solid rgba(0,200,255,0.4)',
-                        borderRadius: '6px',
-                        color: '#00c8ff',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                      }}
-                    >Fit</button>
-                  </div>
-                )}
-              </div>
-
-              {/* Elevation Canvas - with pan/zoom */}
-              <div
-                ref={(el) => {
-                  // Store ref for pinch zoom
-                  if (el) el.elevationContainer = true;
-                }}
-                style={{
-                  flex: 1,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  touchAction: 'none',
-                  cursor: isElevationPanning ? 'grabbing' : 'grab',
-                }}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  setIsElevationPanning(true);
-                  setElevationPanStart({ x: e.clientX - elevationPan.x, y: e.clientY - elevationPan.y });
-                }}
-                onPointerMove={(e) => {
-                  if (isElevationPanning && elevationPanStart) {
-                    setElevationPan({
-                      x: e.clientX - elevationPanStart.x,
-                      y: e.clientY - elevationPanStart.y,
-                    });
-                  }
-                }}
-                onPointerUp={(e) => {
-                  e.currentTarget.releasePointerCapture(e.pointerId);
-                  setIsElevationPanning(false);
-                  setElevationPanStart(null);
-                }}
-                onPointerCancel={(e) => {
-                  setIsElevationPanning(false);
-                  setElevationPanStart(null);
-                }}
-                onWheel={(e) => {
-                  e.preventDefault();
-                  const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                  setElevationZoom(z => Math.max(0.2, Math.min(3, z + delta)));
-                }}
-              >
-                <div style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: '50%',
-                  transform: `translate(calc(-50% + ${elevationPan.x}px), calc(-50% + ${elevationPan.y}px)) scale(${elevationZoom})`,
-                  transformOrigin: 'center center',
-                }}>
-                  <canvas
-                    ref={elevationCanvasRef}
-                    width={1200}
-                    height={800}
-                    style={{
-                      background: '#f5f5f0',
-                      boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-                    }}
-                  />
+                    >
+                      {dir}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Mobile hint */}
-              {isMobile && (
-                <div style={{
-                  position: 'absolute',
-                  bottom: '10px',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  background: 'rgba(0,0,0,0.7)',
-                  padding: '6px 12px',
-                  borderRadius: '20px',
-                  color: '#8899aa',
-                  fontSize: '10px',
-                }}>
-                  Drag to pan • Use +/- to zoom
-                </div>
-              )}
+              {/* Elevation Canvas */}
+              <div style={{
+                flex: 1,
+                overflow: 'hidden',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <canvas
+                  ref={elevationCanvasRef}
+                  width={1200}
+                  height={800}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
+                  }}
+                />
+              </div>
             </div>
           )}
 
@@ -11855,189 +10547,9 @@ function FloorPlanPro() {
               </div>
             </div>
           )}
-          {showRoofPanel && selectedItems[0]?.type === 'roof' && !editorsMinimized && (
-            <div style={{
-              position: isMobile ? 'fixed' : 'absolute',
-              top: isMobile ? '60px' : '16px',
-              right: isMobile ? '10px' : '16px',
-              background: 'rgba(8,12,16,0.98)',
-              border: '1px solid rgba(0,200,255,0.2)',
-              borderRadius: '10px',
-              padding: isMobile ? '12px' : '14px',
-              width: isMobile ? '180px' : '200px',
-              zIndex: 250,
-              maxHeight: isMobile ? '60vh' : 'auto',
-              overflowY: 'auto',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ color: '#fff', fontSize: '11px', fontWeight: '500' }}>Edit Roof</span>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button onClick={() => setEditorsMinimized(true)} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer', fontSize: '14px', padding: '4px' }} title="Minimize">−</button>
-                  <button onClick={() => setShowRoofPanel(false)} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer' }}>×</button>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Roof Type</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px' }}>
-                  {Object.entries(ROOF_TYPES).map(([key, def]) => (
-                    <button
-                      key={key}
-                      onClick={() => {
-                        updateActiveFloor(f => ({
-                          ...f,
-                          roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, type: key } : r)
-                        }));
-                        setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, type: key } }]);
-                      }}
-                      style={{
-                        padding: '6px 4px',
-                        background: selectedItems[0].item.type === key ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                        border: `1px solid ${selectedItems[0].item.type === key ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                        borderRadius: '4px',
-                        color: selectedItems[0].item.type === key ? '#00c8ff' : '#8899aa',
-                        fontSize: '9px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {def.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Pitch</label>
-                <select
-                  value={selectedItems[0].item.pitch || '6:12'}
-                  onChange={(e) => {
-                    updateActiveFloor(f => ({
-                      ...f,
-                      roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, pitch: e.target.value } : r)
-                    }));
-                    setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, pitch: e.target.value } }]);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '6px',
-                    background: '#1a2028',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '4px',
-                    color: '#fff',
-                    fontSize: '10px',
-                  }}
-                >
-                  {Object.entries(ROOF_PITCHES).map(([key, def]) => (
-                    <option key={key} value={key}>{def.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Overhang (inches)</label>
-                <input
-                  type="number"
-                  value={selectedItems[0].item.overhang || 12}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value) || 12;
-                    updateActiveFloor(f => ({
-                      ...f,
-                      roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, overhang: val } : r)
-                    }));
-                    setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, overhang: val } }]);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '6px',
-                    background: '#1a2028',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '4px',
-                    color: '#fff',
-                    fontSize: '10px',
-                  }}
-                />
-              </div>
-
-              <div style={{ marginBottom: '10px' }}>
-                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Ridge Direction</label>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button
-                    onClick={() => {
-                      updateActiveFloor(f => ({
-                        ...f,
-                        roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, ridgeDirection: 'horizontal' } : r)
-                      }));
-                      setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, ridgeDirection: 'horizontal' } }]);
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '6px',
-                      background: selectedItems[0].item.ridgeDirection === 'horizontal' ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${selectedItems[0].item.ridgeDirection === 'horizontal' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '4px',
-                      color: selectedItems[0].item.ridgeDirection === 'horizontal' ? '#00c8ff' : '#8899aa',
-                      fontSize: '9px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    E-W
-                  </button>
-                  <button
-                    onClick={() => {
-                      updateActiveFloor(f => ({
-                        ...f,
-                        roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, ridgeDirection: 'vertical' } : r)
-                      }));
-                      setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, ridgeDirection: 'vertical' } }]);
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '6px',
-                      background: selectedItems[0].item.ridgeDirection === 'vertical' ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${selectedItems[0].item.ridgeDirection === 'vertical' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                      borderRadius: '4px',
-                      color: selectedItems[0].item.ridgeDirection === 'vertical' ? '#00c8ff' : '#8899aa',
-                      fontSize: '9px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    N-S
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ fontSize: '9px', color: '#6080a0', marginTop: '10px' }}>
-                Footprint: {formatMeasurement(pixelsToFeet(selectedItems[0].item.width))} × {formatMeasurement(pixelsToFeet(selectedItems[0].item.height))}
-              </div>
-
-              <button
-                onClick={() => {
-                  updateActiveFloor(f => ({
-                    ...f,
-                    roofs: f.roofs.filter(r => r.id !== selectedItems[0].item.id)
-                  }));
-                  setSelectedItems([]);
-                  setShowRoofPanel(false);
-                }}
-                style={{
-                  width: '100%',
-                  marginTop: '10px',
-                  padding: '8px',
-                  background: 'rgba(255,80,80,0.1)',
-                  border: '1px solid rgba(255,80,80,0.3)',
-                  borderRadius: '6px',
-                  color: '#ff8888',
-                  fontSize: '10px',
-                  cursor: 'pointer',
-                }}
-              >
-                Delete Roof
-              </button>
-            </div>
-          )}
-
-          {/* Stats - hide on mobile when menu is open */}
-          {viewMode === 'model' && !(isMobile && showMobileMenu) && (
+          
+          {/* Stats */}
+          {viewMode === 'model' && (
             <div style={{
               position: isMobile ? 'fixed' : 'absolute',
               bottom: isMobile ? '70px' : '12px',
