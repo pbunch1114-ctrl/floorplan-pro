@@ -821,6 +821,7 @@ function FloorPlanPro() {
   
   // Core state
   const [tool, setTool] = useState('wall');
+  const [toolTab, setToolTab] = useState('draw'); // 'draw', 'modify', 'annotate', 'view'
   const [wallType, setWallType] = useState('exterior');
   const [floors, setFloors] = useState([{ 
     id: 'floor-1', 
@@ -7481,25 +7482,73 @@ function FloorPlanPro() {
           </button>
         )}
         
-        {/* Desktop: Full toolbar */}
+        {/* Desktop: Full toolbar with tabs */}
         {!isMobile && (
           <>
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              <ToolButton name="select" icon="↖" label="SELECT" />
-              <ToolButton name="move" icon="✥" label="MOVE" />
-              <ToolButton name="rotate" icon="↻" label="ROTATE" />
-              <ToolButton name="wall" icon="▭" label="WALL" />
-              <ToolButton name="door" icon="🚪" label="DOOR" />
-              <ToolButton name="window" icon="⊞" label="WINDOW" />
-              <ToolButton name="room" icon="⬜" label="ROOM" />
-              <ToolButton name="line" icon="╱" label="LINE" />
-              <ToolButton name="text" icon="T" label="TEXT" />
-              <ToolButton name="measure" icon="📏" label="MEASURE" />
-              <ToolButton name="dimension" icon="↔" label="DIMENSION" />
-              <ToolButton name="extend" icon="⟼" label="EXTEND" />
-              <ToolButton name="trim" icon="✂" label="TRIM" />
-              <ToolButton name="corner" icon="⌐" label="CORNER" />
-              <ToolButton name="pan" icon="✋" label="PAN" />
+            {/* Tool Tabs */}
+            <div style={{ display: 'flex', gap: '2px', marginRight: '8px' }}>
+              {[
+                { id: 'draw', label: 'Draw', icon: '✏️' },
+                { id: 'modify', label: 'Modify', icon: '🔧' },
+                { id: 'annotate', label: 'Annotate', icon: '📝' },
+                { id: 'view', label: 'View', icon: '👁️' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setToolTab(tab.id)}
+                  style={{
+                    padding: '6px 10px',
+                    background: toolTab === tab.id ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${toolTab === tab.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '4px',
+                    color: toolTab === tab.id ? '#00c8ff' : '#6080a0',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <span>{tab.icon}</span>
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Tab-specific tools */}
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '8px' }}>
+              {toolTab === 'draw' && (
+                <>
+                  <ToolButton name="wall" icon="▭" label="WALL" />
+                  <ToolButton name="door" icon="🚪" label="DOOR" />
+                  <ToolButton name="window" icon="⊞" label="WINDOW" />
+                  <ToolButton name="room" icon="⬜" label="ROOM" />
+                  <ToolButton name="line" icon="╱" label="LINE" />
+                </>
+              )}
+              {toolTab === 'modify' && (
+                <>
+                  <ToolButton name="select" icon="↖" label="SELECT" />
+                  <ToolButton name="move" icon="✥" label="MOVE" />
+                  <ToolButton name="rotate" icon="↻" label="ROTATE" />
+                  <ToolButton name="extend" icon="⟼" label="EXTEND" />
+                  <ToolButton name="trim" icon="✂" label="TRIM" />
+                  <ToolButton name="corner" icon="⌐" label="CORNER" />
+                </>
+              )}
+              {toolTab === 'annotate' && (
+                <>
+                  <ToolButton name="text" icon="T" label="TEXT" />
+                  <ToolButton name="dimension" icon="↔" label="DIM" />
+                  <ToolButton name="measure" icon="📏" label="MEASURE" />
+                </>
+              )}
+              {toolTab === 'view' && (
+                <>
+                  <ToolButton name="pan" icon="✋" label="PAN" />
+                  <ToolButton name="select" icon="↖" label="SELECT" />
+                </>
+              )}
             </div>
             
             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
