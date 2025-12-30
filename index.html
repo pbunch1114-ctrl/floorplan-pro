@@ -837,6 +837,15 @@ function FloorPlanPro() {
   
   // Paper space zoom
   const [paperZoom, setPaperZoom] = useState(0.4);
+  const [paperPan, setPaperPan] = useState({ x: 0, y: 0 });
+  const [isPaperPanning, setIsPaperPanning] = useState(false);
+  const [paperPanStart, setPaperPanStart] = useState(null);
+
+  // Elevation view zoom and pan
+  const [elevationZoom, setElevationZoom] = useState(0.5);
+  const [elevationPan, setElevationPan] = useState({ x: 0, y: 0 });
+  const [isElevationPanning, setIsElevationPanning] = useState(false);
+  const [elevationPanStart, setElevationPanStart] = useState(null);
   
   // Core state
   const [tool, setTool] = useState('wall');
@@ -10703,53 +10712,63 @@ function FloorPlanPro() {
               <div style={{
                 background: 'rgba(8,12,16,0.98)',
                 borderBottom: '1px solid rgba(0,200,255,0.2)',
-                padding: '8px 16px',
+                padding: isMobile ? '6px 10px' : '8px 16px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
+                gap: isMobile ? '6px' : '12px',
                 flexShrink: 0,
+                flexWrap: isMobile ? 'wrap' : 'nowrap',
               }}>
                 <button
                   onClick={() => setViewMode('model')}
                   style={{
-                    padding: '6px 12px',
+                    padding: isMobile ? '6px 8px' : '6px 12px',
                     background: 'rgba(0,200,255,0.1)',
                     border: '1px solid rgba(0,200,255,0.3)',
                     borderRadius: '4px',
                     color: '#00c8ff',
-                    fontSize: '11px',
+                    fontSize: isMobile ? '10px' : '11px',
                     cursor: 'pointer',
                   }}
                 >
-                  ← Back to Model Space
+                  ← Back
                 </button>
-                
-                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
-                  📄 {activeSheet.sheetNumber} - {activeSheet.sheetTitle}
-                </span>
-                
-                <span style={{ color: '#6080a0', fontSize: '10px' }}>
-                  {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size} | Scale: {activeSheet.scale}
-                </span>
+
+                {!isMobile && (
+                  <>
+                    <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                      📄 {activeSheet.sheetNumber} - {activeSheet.sheetTitle}
+                    </span>
+
+                    <span style={{ color: '#6080a0', fontSize: '10px' }}>
+                      {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size} | Scale: {activeSheet.scale}
+                    </span>
+                  </>
+                )}
+                {isMobile && (
+                  <span style={{ color: '#fff', fontSize: '10px', fontWeight: '500' }}>
+                    📄 {activeSheet.sheetNumber}
+                  </span>
+                )}
                 
                 <div style={{ flex: 1 }} />
                 
                 {/* Zoom controls */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '4px' : '8px' }}>
                   <button
                     onClick={() => setPaperZoom(z => Math.max(0.1, z - 0.1))}
-                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '12px' }}
                   >−</button>
-                  <span style={{ color: '#fff', fontSize: '11px', minWidth: '50px', textAlign: 'center' }}>
+                  <span style={{ color: '#fff', fontSize: '10px', minWidth: '40px', textAlign: 'center' }}>
                     {Math.round(paperZoom * 100)}%
                   </span>
                   <button
                     onClick={() => setPaperZoom(z => Math.min(2, z + 0.1))}
-                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '12px' }}
                   >+</button>
                   <button
-                    onClick={() => setPaperZoom(0.4)}
-                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '10px' }}
+                    onClick={() => { setPaperZoom(isMobile ? 0.25 : 0.4); setPaperPan({ x: 0, y: 0 }); }}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '9px' }}
                   >Fit</button>
                 </div>
                 
@@ -10769,27 +10788,57 @@ function FloorPlanPro() {
                 </button>
               </div>
               
-              {/* Paper Preview Area - Scrollable */}
-              <div style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: '40px',
-              }}>
+              {/* Paper Preview Area - with pan/zoom */}
+              <div
+                style={{
+                  flex: 1,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  touchAction: 'none',
+                }}
+                onPointerDown={(e) => {
+                  setIsPaperPanning(true);
+                  setPaperPanStart({ x: e.clientX - paperPan.x, y: e.clientY - paperPan.y });
+                }}
+                onPointerMove={(e) => {
+                  if (isPaperPanning && paperPanStart) {
+                    setPaperPan({
+                      x: e.clientX - paperPanStart.x,
+                      y: e.clientY - paperPanStart.y,
+                    });
+                  }
+                }}
+                onPointerUp={() => {
+                  setIsPaperPanning(false);
+                  setPaperPanStart(null);
+                }}
+                onPointerLeave={() => {
+                  setIsPaperPanning(false);
+                  setPaperPanStart(null);
+                }}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY > 0 ? -0.05 : 0.05;
+                  setPaperZoom(z => Math.max(0.1, Math.min(2, z + delta)));
+                }}
+              >
                 <div style={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  minHeight: '100%',
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: `translate(calc(-50% + ${paperPan.x}px), calc(-50% + ${paperPan.y}px)) scale(${paperZoom})`,
+                  transformOrigin: 'center center',
                 }}>
                   {/* Paper Sheet Container */}
-                  <div 
+                  <div
                     id="print-sheet"
                     style={{
-                      width: (activeSheet.orientation === 'landscape' 
+                      width: activeSheet.orientation === 'landscape'
                         ? PAPER_SIZES[activeSheet.size]?.width || 1056
-                        : PAPER_SIZES[activeSheet.size]?.height || 816) * paperZoom,
-                      height: (activeSheet.orientation === 'landscape'
+                        : PAPER_SIZES[activeSheet.size]?.height || 816,
+                      height: activeSheet.orientation === 'landscape'
                         ? PAPER_SIZES[activeSheet.size]?.height || 816
-                        : PAPER_SIZES[activeSheet.size]?.width || 1056) * paperZoom,
+                        : PAPER_SIZES[activeSheet.size]?.width || 1056,
                       background: '#fff',
                       boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
                       position: 'relative',
@@ -10799,7 +10848,7 @@ function FloorPlanPro() {
                     {/* Drawing Canvas */}
                     <canvas
                       ref={paperCanvasRef}
-                      width={(activeSheet.orientation === 'landscape' 
+                      width={(activeSheet.orientation === 'landscape'
                         ? PAPER_SIZES[activeSheet.size]?.width || 1056
                         : PAPER_SIZES[activeSheet.size]?.height || 816)}
                       height={(activeSheet.orientation === 'landscape'
@@ -10833,77 +10882,148 @@ function FloorPlanPro() {
               <div style={{
                 background: 'rgba(8,12,16,0.98)',
                 borderBottom: '1px solid rgba(0,200,255,0.2)',
-                padding: '8px 16px',
+                padding: isMobile ? '6px 10px' : '8px 16px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '12px',
+                gap: isMobile ? '6px' : '12px',
                 flexShrink: 0,
+                flexWrap: isMobile ? 'wrap' : 'nowrap',
               }}>
                 <button
                   onClick={() => setViewMode('model')}
                   style={{
-                    padding: '6px 12px',
+                    padding: isMobile ? '6px 8px' : '6px 12px',
                     background: 'rgba(0,200,255,0.1)',
                     border: '1px solid rgba(0,200,255,0.3)',
                     borderRadius: '4px',
                     color: '#00c8ff',
-                    fontSize: '11px',
+                    fontSize: isMobile ? '10px' : '11px',
                     cursor: 'pointer',
                   }}
                 >
-                  ← Back to Model Space
+                  ← Back
                 </button>
 
-                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
-                  🏠 Elevation Views
-                </span>
-
-                <div style={{ flex: 1 }} />
+                {!isMobile && (
+                  <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                    🏠 Elevation Views
+                  </span>
+                )}
 
                 {/* Elevation Direction Controls */}
-                <div style={{ display: 'flex', gap: '4px' }}>
+                <div style={{ display: 'flex', gap: '3px' }}>
                   {['north', 'south', 'east', 'west'].map(dir => (
                     <button
                       key={dir}
                       onClick={() => setActiveElevation(dir)}
                       style={{
-                        padding: '6px 12px',
+                        padding: isMobile ? '6px 8px' : '6px 12px',
                         background: activeElevation === dir ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
                         border: `1px solid ${activeElevation === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
                         borderRadius: '4px',
                         color: activeElevation === dir ? '#00c8ff' : '#6080a0',
-                        fontSize: '10px',
+                        fontSize: isMobile ? '9px' : '10px',
                         cursor: 'pointer',
                         fontWeight: activeElevation === dir ? '600' : '400',
-                        textTransform: 'capitalize',
+                        textTransform: 'uppercase',
                       }}
                     >
-                      {dir}
+                      {dir.charAt(0)}
                     </button>
                   ))}
                 </div>
+
+                <div style={{ flex: 1 }} />
+
+                {/* Zoom controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <button
+                    onClick={() => setElevationZoom(z => Math.max(0.1, z - 0.1))}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '12px' }}
+                  >−</button>
+                  <span style={{ color: '#fff', fontSize: '10px', minWidth: '40px', textAlign: 'center' }}>
+                    {Math.round(elevationZoom * 100)}%
+                  </span>
+                  <button
+                    onClick={() => setElevationZoom(z => Math.min(2, z + 0.1))}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '12px' }}
+                  >+</button>
+                  <button
+                    onClick={() => { setElevationZoom(0.5); setElevationPan({ x: 0, y: 0 }); }}
+                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '9px' }}
+                  >Fit</button>
+                </div>
               </div>
 
-              {/* Elevation Canvas */}
-              <div style={{
-                flex: 1,
-                overflow: 'hidden',
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                <canvas
-                  ref={elevationCanvasRef}
-                  width={1200}
-                  height={800}
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    objectFit: 'contain',
-                  }}
-                />
+              {/* Elevation Canvas - with pan/zoom */}
+              <div
+                style={{
+                  flex: 1,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  touchAction: 'none',
+                }}
+                onPointerDown={(e) => {
+                  setIsElevationPanning(true);
+                  setElevationPanStart({ x: e.clientX - elevationPan.x, y: e.clientY - elevationPan.y });
+                }}
+                onPointerMove={(e) => {
+                  if (isElevationPanning && elevationPanStart) {
+                    setElevationPan({
+                      x: e.clientX - elevationPanStart.x,
+                      y: e.clientY - elevationPanStart.y,
+                    });
+                  }
+                }}
+                onPointerUp={() => {
+                  setIsElevationPanning(false);
+                  setElevationPanStart(null);
+                }}
+                onPointerLeave={() => {
+                  setIsElevationPanning(false);
+                  setElevationPanStart(null);
+                }}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                  setElevationZoom(z => Math.max(0.1, Math.min(3, z + delta)));
+                }}
+              >
+                <div style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: `translate(calc(-50% + ${elevationPan.x}px), calc(-50% + ${elevationPan.y}px)) scale(${elevationZoom})`,
+                  transformOrigin: 'center center',
+                }}>
+                  <canvas
+                    ref={elevationCanvasRef}
+                    width={1200}
+                    height={800}
+                    style={{
+                      background: '#f5f5f0',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+                    }}
+                  />
+                </div>
               </div>
+
+              {/* Mobile hint */}
+              {isMobile && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: '10px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'rgba(0,0,0,0.7)',
+                  padding: '6px 12px',
+                  borderRadius: '20px',
+                  color: '#8899aa',
+                  fontSize: '10px',
+                }}>
+                  Drag to pan • Use +/- to zoom
+                </div>
+              )}
             </div>
           )}
 
