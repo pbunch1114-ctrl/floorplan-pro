@@ -4820,20 +4820,36 @@ function FloorPlanPro() {
     const roofs = activeFloor.roofs || [];
     roofs.forEach(roof => {
       const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
-      const roofSpan = isHorizontalElevation ? roof.height : roof.width;
-      const roofWidth = isHorizontalElevation ? roof.width : roof.height;
-      const roofRise = (roofSpan / 2) * (pitchDef.rise / pitchDef.run);
 
-      // Calculate roof position on elevation
-      let roofStartPos;
+      // Determine if we're viewing the gable end or eave side
+      // Gable end: looking perpendicular to the ridge (see the triangle)
+      // Eave side: looking parallel to the ridge (see the slope from the side)
+      // Ridge direction 'horizontal' means ridge runs left-right (east-west)
+      // Ridge direction 'vertical' means ridge runs up-down (north-south)
+      const viewingGableEnd = (isHorizontalElevation && roof.ridgeDirection === 'vertical') ||
+                              (!isHorizontalElevation && roof.ridgeDirection === 'horizontal');
+
+      // For elevation view width:
+      // - North/South view: use roof's X width
+      // - East/West view: use roof's Y height
+      let roofViewWidth, roofSpanForPitch, roofStartPos;
+
       if (isHorizontalElevation) {
+        roofViewWidth = roof.width;
         roofStartPos = roof.x;
+        // Span for pitch calculation depends on ridge direction
+        roofSpanForPitch = roof.ridgeDirection === 'vertical' ? roof.width : roof.height;
       } else {
+        roofViewWidth = roof.height;
         roofStartPos = roof.y;
+        // Span for pitch calculation depends on ridge direction
+        roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? roof.height : roof.width;
       }
 
+      const roofRise = (roofSpanForPitch / 2) * (pitchDef.rise / pitchDef.run);
+
       const roofX = offsetX + (roofStartPos - minPos) * elevScale;
-      const roofW = roofWidth * elevScale;
+      const roofW = roofViewWidth * elevScale;
       const roofH = roofRise * elevScale;
       const roofY = offsetY - wallHeight * elevScale; // Top of walls
 
@@ -4843,9 +4859,6 @@ function FloorPlanPro() {
       ctx.lineWidth = isSketchyMode ? 1.5 : 2;
 
       if (roof.type === 'gable') {
-        // Check if we're viewing the gable end or eave side
-        const viewingGableEnd = (isHorizontalElevation && roof.ridgeDirection === 'horizontal') ||
-                                (!isHorizontalElevation && roof.ridgeDirection === 'vertical');
 
         if (viewingGableEnd) {
           // Triangular gable end
