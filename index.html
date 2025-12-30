@@ -2677,7 +2677,38 @@ function FloorPlanPro() {
     } else if (isDrawing) {
       const pos = getPointerPos(e);
       const snappedPos = { x: snap(pos.x), y: snap(pos.y) };
-      
+
+      // Auto-pan when drawing near screen edges on mobile
+      if (isMobile && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const edgeThreshold = 60; // pixels from edge to trigger pan
+        const panSpeed = 8; // pixels to pan per move event
+
+        let panX = 0;
+        let panY = 0;
+
+        // Check if pointer is near edges
+        if (clientX < rect.left + edgeThreshold) {
+          panX = panSpeed; // Pan right (move canvas left relative to view)
+        } else if (clientX > rect.right - edgeThreshold) {
+          panX = -panSpeed; // Pan left
+        }
+
+        if (clientY < rect.top + edgeThreshold) {
+          panY = panSpeed; // Pan down
+        } else if (clientY > rect.bottom - edgeThreshold) {
+          panY = -panSpeed; // Pan up
+        }
+
+        // Apply auto-pan if near edge
+        if (panX !== 0 || panY !== 0) {
+          setOffset(prev => ({
+            x: prev.x + panX,
+            y: prev.y + panY
+          }));
+        }
+      }
+
       if (tool === 'wall' && drawStart) {
         // Use angle snapping for walls
         const angleSnapped = snapAngle(drawStart, snappedPos);
