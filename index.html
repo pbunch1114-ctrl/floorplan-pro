@@ -126,6 +126,25 @@ const WALL_DETAIL_LEVELS = {
   detailed: { label: 'Detailed', description: 'Full construction' },
 };
 
+// Roof types
+const ROOF_TYPES = {
+  gable: { label: 'Gable', description: 'Two sloping sides meeting at ridge', icon: '⌂' },
+  hip: { label: 'Hip', description: 'Slopes on all four sides', icon: '⌂' },
+  shed: { label: 'Shed', description: 'Single sloping surface', icon: '/' },
+  flat: { label: 'Flat', description: 'Level roof surface', icon: '▭' },
+};
+
+// Roof pitches
+const ROOF_PITCHES = {
+  '3:12': { rise: 3, run: 12, label: '3:12 (14°)' },
+  '4:12': { rise: 4, run: 12, label: '4:12 (18°)' },
+  '5:12': { rise: 5, run: 12, label: '5:12 (23°)' },
+  '6:12': { rise: 6, run: 12, label: '6:12 (27°)' },
+  '8:12': { rise: 8, run: 12, label: '8:12 (34°)' },
+  '10:12': { rise: 10, run: 12, label: '10:12 (40°)' },
+  '12:12': { rise: 12, run: 12, label: '12:12 (45°)' },
+};
+
 const FURNITURE_LIBRARY = [
   { id: 'bed-king', name: 'King Bed', category: 'bedroom', width: 80, height: 76, icon: '🛏️', shape: 'bed' },
   { id: 'bed-queen', name: 'Queen Bed', category: 'bedroom', width: 60, height: 80, icon: '🛏️', shape: 'bed' },
@@ -841,6 +860,7 @@ function FloorPlanPro() {
     polylines: [],
     hatches: [],
     porches: [],
+    roofs: [],
   }]);
   const [activeFloorId, setActiveFloorId] = useState('floor-1');
   const [selectedItems, setSelectedItems] = useState([]);
@@ -853,6 +873,11 @@ function FloorPlanPro() {
   const [lineType, setLineType] = useState('solid'); // solid, dashed, dotted, centerline
   const [lineWeight, setLineWeight] = useState(1);
   const [polylinePoints, setPolylinePoints] = useState([]);
+
+  // Roof tool state
+  const [roofType, setRoofType] = useState('gable');
+  const [roofPitch, setRoofPitch] = useState('6:12');
+  const [roofOverhang, setRoofOverhang] = useState(12); // inches
   const [isDrawingPolyline, setIsDrawingPolyline] = useState(false);
   const [lineStart, setLineStart] = useState(null);
   const lineStartRef = useRef(null);
@@ -1987,6 +2012,10 @@ function FloorPlanPro() {
         setMeasureEnd(null);
       }
     } else if (tool === 'room') {
+      setIsDrawing(true);
+      setDrawStart(snappedPos);
+      setDrawEnd(snappedPos);
+    } else if (tool === 'roof') {
       setIsDrawing(true);
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
@@ -3173,6 +3202,23 @@ function FloorPlanPro() {
             name: PORCH_TYPES[porchType]?.name || 'Porch',
           };
           updateActiveFloor(f => ({ ...f, porches: [...(f.porches || []), newPorch] }));
+        }
+      } else if (tool === 'roof') {
+        const width = Math.abs(drawEnd.x - drawStart.x);
+        const height = Math.abs(drawEnd.y - drawStart.y);
+        if (width >= GRID_SIZE && height >= GRID_SIZE) {
+          const newRoof = {
+            id: generateId(),
+            x: Math.min(drawStart.x, drawEnd.x),
+            y: Math.min(drawStart.y, drawEnd.y),
+            width,
+            height,
+            type: roofType,
+            pitch: roofPitch,
+            overhang: roofOverhang,
+            ridgeDirection: width > height ? 'horizontal' : 'vertical',
+          };
+          updateActiveFloor(f => ({ ...f, roofs: [...(f.roofs || []), newRoof] }));
         }
       }
     }
@@ -4844,7 +4890,89 @@ function FloorPlanPro() {
         ctx.fillText(`${formatMeasurement(porchWFt)} × ${formatMeasurement(porchHFt)}`, porch.x + porch.width / 2, porch.y + porch.height / 2 + 15);
       });
     }
-    
+
+    // Draw roofs
+    (activeFloor.roofs || []).forEach(roof => {
+      const isSelected = selectedItems.some(s => s.type === 'roof' && s.item.id === roof.id);
+      const { x, y, width, height, type, ridgeDirection } = roof;
+
+      // Fill with roof color
+      ctx.fillStyle = isSelected ? 'rgba(139,90,43,0.3)' : 'rgba(139,90,43,0.15)';
+      ctx.fillRect(x, y, width, height);
+
+      // Draw roof pattern based on type
+      ctx.strokeStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.8)';
+      ctx.lineWidth = isSelected ? 2 : 1.5;
+
+      // Border
+      ctx.strokeRect(x, y, width, height);
+
+      // Ridge line
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (type === 'gable' || type === 'hip') {
+        if (ridgeDirection === 'horizontal') {
+          ctx.moveTo(x, y + height / 2);
+          ctx.lineTo(x + width, y + height / 2);
+        } else {
+          ctx.moveTo(x + width / 2, y);
+          ctx.lineTo(x + width / 2, y + height);
+        }
+      } else if (type === 'shed') {
+        // Shed roof - just show slope direction with arrow
+        ctx.moveTo(x + width * 0.3, y + height / 2);
+        ctx.lineTo(x + width * 0.7, y + height / 2);
+        ctx.moveTo(x + width * 0.6, y + height / 2 - 8);
+        ctx.lineTo(x + width * 0.7, y + height / 2);
+        ctx.lineTo(x + width * 0.6, y + height / 2 + 8);
+      }
+      ctx.stroke();
+
+      // Hip lines (diagonal from corners to ridge)
+      if (type === 'hip') {
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        if (ridgeDirection === 'horizontal') {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + height / 2, y + height / 2);
+          ctx.moveTo(x, y + height);
+          ctx.lineTo(x + height / 2, y + height / 2);
+          ctx.moveTo(x + width, y);
+          ctx.lineTo(x + width - height / 2, y + height / 2);
+          ctx.moveTo(x + width, y + height);
+          ctx.lineTo(x + width - height / 2, y + height / 2);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.lineTo(x + width / 2, y + width / 2);
+          ctx.moveTo(x + width, y);
+          ctx.lineTo(x + width / 2, y + width / 2);
+          ctx.moveTo(x, y + height);
+          ctx.lineTo(x + width / 2, y + height - width / 2);
+          ctx.moveTo(x + width, y + height);
+          ctx.lineTo(x + width / 2, y + height - width / 2);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+
+      // Label
+      ctx.font = '11px "SF Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.9)';
+      ctx.fillText(`${ROOF_TYPES[type]?.label || 'Roof'} ${roof.pitch}`, x + width / 2, y + height / 2 - 10);
+
+      // Dimensions
+      ctx.font = '10px "SF Mono", monospace';
+      ctx.fillStyle = 'rgba(139,90,43,0.7)';
+      const roofWFt = pixelsToFeet(width);
+      const roofHFt = pixelsToFeet(height);
+      ctx.fillText(`${formatMeasurement(roofWFt)} × ${formatMeasurement(roofHFt)}`, x + width / 2, y + height / 2 + 8);
+    });
+
     // Draw lines
     if (layers.lines?.visible) {
       (activeFloor.lines || []).forEach(line => {
@@ -6587,7 +6715,7 @@ function FloorPlanPro() {
         const w = Math.abs(drawEnd.x - drawStart.x);
         const h = Math.abs(drawEnd.y - drawStart.y);
         const porchDef = PORCH_TYPES[porchType] || PORCH_TYPES.open;
-        
+
         ctx.fillStyle = 'rgba(139,119,101,0.2)';
         ctx.fillRect(x, y, w, h);
         ctx.strokeStyle = '#8b7765';
@@ -6595,7 +6723,7 @@ function FloorPlanPro() {
         ctx.setLineDash([8, 4]);
         ctx.strokeRect(x, y, w, h);
         ctx.setLineDash([]);
-        
+
         // Show dimensions
         ctx.fillStyle = '#8b7765';
         ctx.font = 'bold 12px "SF Mono", monospace';
@@ -6603,6 +6731,27 @@ function FloorPlanPro() {
         ctx.fillText(`${formatMeasurement(pixelsToFeet(w))} × ${formatMeasurement(pixelsToFeet(h))}`, x + w / 2, y + h / 2 - 10);
         ctx.font = '11px sans-serif';
         ctx.fillText(porchDef.name, x + w / 2, y + h / 2 + 8);
+      } else if (tool === 'roof') {
+        const x = Math.min(drawStart.x, drawEnd.x);
+        const y = Math.min(drawStart.y, drawEnd.y);
+        const w = Math.abs(drawEnd.x - drawStart.x);
+        const h = Math.abs(drawEnd.y - drawStart.y);
+
+        ctx.fillStyle = 'rgba(139,90,43,0.2)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = '#8b5a2b';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+
+        // Show dimensions and type
+        ctx.fillStyle = '#8b5a2b';
+        ctx.font = 'bold 12px "SF Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${formatMeasurement(pixelsToFeet(w))} × ${formatMeasurement(pixelsToFeet(h))}`, x + w / 2, y + h / 2 - 10);
+        ctx.font = '11px sans-serif';
+        ctx.fillText(`${ROOF_TYPES[roofType]?.label || 'Roof'} ${roofPitch}`, x + w / 2, y + h / 2 + 8);
       }
     }
     
@@ -7523,6 +7672,7 @@ function FloorPlanPro() {
                   <ToolButton name="door" icon="🚪" label="DOOR" />
                   <ToolButton name="window" icon="⊞" label="WINDOW" />
                   <ToolButton name="room" icon="⬜" label="ROOM" />
+                  <ToolButton name="roof" icon="⌂" label="ROOF" />
                   <ToolButton name="line" icon="╱" label="LINE" />
                 </>
               )}
@@ -7658,6 +7808,7 @@ function FloorPlanPro() {
                   { name: 'door', icon: '🚪', label: 'Door' },
                   { name: 'window', icon: '⊞', label: 'Window' },
                   { name: 'room', icon: '⬜', label: 'Room' },
+                  { name: 'roof', icon: '⌂', label: 'Roof' },
                   { name: 'line', icon: '╱', label: 'Line' },
                   { name: 'pan', icon: '✋', label: 'Pan' },
                 ].map(t => (
