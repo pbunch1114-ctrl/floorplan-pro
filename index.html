@@ -4659,15 +4659,19 @@ function FloorPlanPro() {
 
     // Draw each wall
     elevationWalls.forEach(wall => {
-      const wallLength = Math.sqrt(
-        Math.pow(wall.end.x - wall.start.x, 2) + Math.pow(wall.end.y - wall.start.y, 2)
-      );
-
-      // Calculate wall X position on the elevation
+      // For elevation view, wall "length" depends on which direction we're viewing
+      // North/South (horizontal elevation): use X span of horizontal walls
+      // East/West (vertical elevation): use Y span of vertical walls
+      let wallLength;
       let wallStartPos;
+
       if (isHorizontalElevation) {
+        // Horizontal walls viewed from north/south - use X coordinates
+        wallLength = Math.abs(wall.end.x - wall.start.x);
         wallStartPos = Math.min(wall.start.x, wall.end.x);
       } else {
+        // Vertical walls viewed from east/west - use Y coordinates
+        wallLength = Math.abs(wall.end.y - wall.start.y);
         wallStartPos = Math.min(wall.start.y, wall.end.y);
       }
 
