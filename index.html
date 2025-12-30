@@ -5202,6 +5202,34 @@ function FloorPlanPro() {
         ctx.setLineDash([]);
       }
 
+      // Draw rafters if enabled
+      if (roof.showRafters) {
+        ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.5)' : 'rgba(139,90,43,0.4)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+
+        const rafterSpacing = 24; // 24 inches (2 feet on center) in pixels
+        const rafterSpacingPx = rafterSpacing * (GRID_SIZE / 6);
+
+        if (ridgeDirection === 'horizontal') {
+          // Rafters run perpendicular to ridge (vertical lines)
+          for (let rx = x + rafterSpacingPx; rx < x + width; rx += rafterSpacingPx) {
+            ctx.beginPath();
+            ctx.moveTo(rx, y);
+            ctx.lineTo(rx, y + height);
+            ctx.stroke();
+          }
+        } else {
+          // Rafters run perpendicular to ridge (horizontal lines)
+          for (let ry = y + rafterSpacingPx; ry < y + height; ry += rafterSpacingPx) {
+            ctx.beginPath();
+            ctx.moveTo(x, ry);
+            ctx.lineTo(x + width, ry);
+            ctx.stroke();
+          }
+        }
+      }
+
       // Label
       ctx.font = '11px "SF Mono", monospace';
       ctx.textAlign = 'center';
@@ -9360,6 +9388,66 @@ function FloorPlanPro() {
                 units={units}
                 formatMeasurement={formatMeasurement}
               />
+
+              {/* Flip Ridge Direction */}
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  onClick={() => updateActiveFloor(f => ({
+                    ...f,
+                    roofs: f.roofs.map(r =>
+                      r.id === selectedItems[0].item.id
+                        ? { ...r, ridgeDirection: r.ridgeDirection === 'horizontal' ? 'vertical' : 'horizontal' }
+                        : r
+                    )
+                  }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    background: 'rgba(0,200,255,0.1)',
+                    border: '1px solid rgba(0,200,255,0.3)',
+                    borderRadius: '6px',
+                    color: '#00c8ff',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  🔄 Flip Ridge Direction ({selectedItems[0].item.ridgeDirection === 'horizontal' ? '↔' : '↕'})
+                </button>
+              </div>
+
+              {/* Show Rafters Toggle */}
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  onClick={() => updateActiveFloor(f => ({
+                    ...f,
+                    roofs: f.roofs.map(r =>
+                      r.id === selectedItems[0].item.id
+                        ? { ...r, showRafters: !r.showRafters }
+                        : r
+                    )
+                  }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    background: selectedItems[0].item.showRafters ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${selectedItems[0].item.showRafters ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '6px',
+                    color: selectedItems[0].item.showRafters ? '#00c8ff' : '#8899aa',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  {selectedItems[0].item.showRafters ? '✓' : '○'} Show Rafters
+                </button>
+              </div>
 
               <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(0,200,255,0.05)', borderRadius: '4px' }}>
                 <div style={{ color: '#6080a0', fontSize: '9px', marginBottom: '4px' }}>Roof Info</div>
