@@ -2624,16 +2624,20 @@ function FloorPlanPro() {
       const snappedPos = { x: snap(pos.x), y: snap(pos.y) };
 
       // Auto-pan when drawing near screen edges on mobile
-      if (isMobile && canvasRef.current) {
-        const rect = canvasRef.current.getBoundingClientRect();
-        const edgeThreshold = 60;
-        const panSpeed = 8;
+      if (isMobile && clientX && clientY) {
+        const screenWidth = window.innerWidth;
+        const screenHeight = window.innerHeight;
+        const edgeThreshold = 80; // pixels from edge
+        const panSpeed = 12; // pixels to pan per frame
         let panX = 0;
         let panY = 0;
-        if (clientX < rect.left + edgeThreshold) panX = panSpeed;
-        else if (clientX > rect.right - edgeThreshold) panX = -panSpeed;
-        if (clientY < rect.top + edgeThreshold) panY = panSpeed;
-        else if (clientY > rect.bottom - edgeThreshold) panY = -panSpeed;
+
+        // Check edges using screen coordinates
+        if (clientX < edgeThreshold) panX = panSpeed;
+        else if (clientX > screenWidth - edgeThreshold) panX = -panSpeed;
+        if (clientY < edgeThreshold) panY = panSpeed;
+        else if (clientY > screenHeight - edgeThreshold) panY = -panSpeed;
+
         if (panX !== 0 || panY !== 0) {
           setOffset(prev => ({ x: prev.x + panX, y: prev.y + panY }));
         }
