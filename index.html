@@ -926,6 +926,7 @@ function FloorPlanPro() {
   const [showSheetsPanel, setShowSheetsPanel] = useState(false);
   const [viewMode, setViewMode] = useState('model'); // 'model', 'paper', or 'elevations'
   const [activeElevation, setActiveElevation] = useState('north'); // 'north', 'south', 'east', 'west'
+  const [elevationRenderMode, setElevationRenderMode] = useState('color'); // 'color', 'line', 'sketchy'
   
   // Title block templates
   const TITLE_BLOCK_TEMPLATES = {
@@ -962,6 +963,7 @@ function FloorPlanPro() {
   const [furnitureCategory, setFurnitureCategory] = useState('all');
   const [showWallEditor, setShowWallEditor] = useState(false);
   const [showDoorWindowEditor, setShowDoorWindowEditor] = useState(false);
+  const [showRoofEditor, setShowRoofEditor] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showNewFileConfirm, setShowNewFileConfirm] = useState(false);
   const [editorsMinimized, setEditorsMinimized] = useState(false); // When true, editors stay hidden during selection/drag
@@ -2024,9 +2026,25 @@ function FloorPlanPro() {
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
     } else if (tool === 'roof') {
+      // Snap to wall corners for roof drawing
+      const CORNER_SNAP_DIST = isMobile ? 50 : 25;
+      let roofSnapPos = snappedPos;
+      let minDist = CORNER_SNAP_DIST;
+
+      // Collect all wall endpoints
+      activeFloor.walls.forEach(wall => {
+        [wall.start, wall.end].forEach(pt => {
+          const d = Math.sqrt((pos.x - pt.x) ** 2 + (pos.y - pt.y) ** 2);
+          if (d < minDist) {
+            minDist = d;
+            roofSnapPos = { x: pt.x, y: pt.y };
+          }
+        });
+      });
+
       setIsDrawing(true);
-      setDrawStart(snappedPos);
-      setDrawEnd(snappedPos);
+      setDrawStart(roofSnapPos);
+      setDrawEnd(roofSnapPos);
     } else if (tool === 'text') {
       // Show text input dialog at this position
       setPendingTextPos(snappedPos);
@@ -2198,11 +2216,19 @@ function FloorPlanPro() {
         } else if (item.type === 'porch') {
           setShowWallEditor(false);
           setShowDoorWindowEditor(false);
+          setShowRoofEditor(false);
+          setDragItem(item.item);
+          setDragOffset({ x: pos.x - item.item.x, y: pos.y - item.item.y });
+        } else if (item.type === 'roof') {
+          setShowWallEditor(false);
+          setShowDoorWindowEditor(false);
+          if (!editorsMinimized) setShowRoofEditor(true);
           setDragItem(item.item);
           setDragOffset({ x: pos.x - item.item.x, y: pos.y - item.item.y });
         } else {
           setShowWallEditor(false);
           setShowDoorWindowEditor(false);
+          setShowRoofEditor(false);
         }
         if (item.type === 'furniture' || item.type === 'stairs' || item.type === 'electrical' || item.type === 'plumbing' || item.type === 'text') {
           setDragItem(item.item);
@@ -2212,6 +2238,7 @@ function FloorPlanPro() {
         setSelectedItems([]);
         setShowWallEditor(false);
         setShowDoorWindowEditor(false);
+        setShowRoofEditor(false);
       }
     } else if (tool === 'move') {
       // Move command - click base point, then click destination
@@ -2755,7 +2782,28 @@ function FloorPlanPro() {
         setDrawEnd(finalPos);
         return;
       }
-      
+
+      // Roof tool - snap to wall corners
+      if (tool === 'roof' && drawStart) {
+        const CORNER_SNAP_DIST = isMobile ? 50 : 25;
+        let roofSnapPos = snappedPos;
+        let minDist = CORNER_SNAP_DIST;
+
+        // Collect all wall endpoints
+        activeFloor.walls.forEach(wall => {
+          [wall.start, wall.end].forEach(pt => {
+            const d = Math.sqrt((pos.x - pt.x) ** 2 + (pos.y - pt.y) ** 2);
+            if (d < minDist) {
+              minDist = d;
+              roofSnapPos = { x: pt.x, y: pt.y };
+            }
+          });
+        });
+
+        setDrawEnd(roofSnapPos);
+        return;
+      }
+
       setDrawEnd(snappedPos);
     } else if (activeGrip) {
       // Handle grip dragging with snap to other grips, midpoints, perpendiculars
@@ -4486,8 +4534,34 @@ function FloorPlanPro() {
 
     const { width, height } = { width: canvas.width, height: canvas.height };
 
+    // Render mode colors
+    const isLineMode = elevationRenderMode === 'line';
+    const isSketchyMode = elevationRenderMode === 'sketchy';
+    const isColorMode = elevationRenderMode === 'color';
+
+    // Helper function for sketchy lines
+    const drawSketchyLine = (x1, y1, x2, y2) => {
+      const segments = Math.max(3, Math.floor(Math.sqrt((x2-x1)**2 + (y2-y1)**2) / 20));
+      ctx.beginPath();
+      ctx.moveTo(x1 + (Math.random() - 0.5) * 2, y1 + (Math.random() - 0.5) * 2);
+      for (let i = 1; i <= segments; i++) {
+        const t = i / segments;
+        const x = x1 + (x2 - x1) * t + (Math.random() - 0.5) * 3;
+        const y = y1 + (y2 - y1) * t + (Math.random() - 0.5) * 3;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    };
+
+    const drawSketchyRect = (x, y, w, h) => {
+      drawSketchyLine(x, y, x + w, y);
+      drawSketchyLine(x + w, y, x + w, y + h);
+      drawSketchyLine(x + w, y + h, x, y + h);
+      drawSketchyLine(x, y + h, x, y);
+    };
+
     // Clear canvas
-    ctx.fillStyle = '#f5f5f5';
+    ctx.fillStyle = isColorMode ? '#f5f5f5' : '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
     // Get all walls from active floor
@@ -4566,16 +4640,22 @@ function FloorPlanPro() {
     ctx.fillText(`${activeElevation.toUpperCase()} ELEVATION`, width / 2, 35);
 
     // Draw ground line
-    ctx.strokeStyle = '#654321';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(padding / 2, offsetY);
-    ctx.lineTo(width - padding / 2, offsetY);
-    ctx.stroke();
+    ctx.strokeStyle = isColorMode ? '#654321' : '#000000';
+    ctx.lineWidth = isSketchyMode ? 2 : 3;
+    if (isSketchyMode) {
+      drawSketchyLine(padding / 2, offsetY, width - padding / 2, offsetY);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(padding / 2, offsetY);
+      ctx.lineTo(width - padding / 2, offsetY);
+      ctx.stroke();
+    }
 
-    // Draw ground texture
-    ctx.fillStyle = '#8B7355';
-    ctx.fillRect(padding / 2, offsetY, width - padding, 15);
+    // Draw ground texture (only in color mode)
+    if (isColorMode) {
+      ctx.fillStyle = '#8B7355';
+      ctx.fillRect(padding / 2, offsetY, width - padding, 15);
+    }
 
     // Draw each wall
     elevationWalls.forEach(wall => {
@@ -4596,27 +4676,33 @@ function FloorPlanPro() {
       const wallH = wallHeight * elevScale;
       const wallY = offsetY - wallH;
 
-      // Draw wall fill
-      ctx.fillStyle = wall.type === 'exterior' ? '#d4c5b0' : '#e8e0d5';
-      ctx.fillRect(wallX, wallY, wallW, wallH);
+      // Draw wall fill (only in color mode)
+      if (isColorMode) {
+        ctx.fillStyle = wall.type === 'exterior' ? '#d4c5b0' : '#e8e0d5';
+        ctx.fillRect(wallX, wallY, wallW, wallH);
 
-      // Draw siding pattern for exterior walls
-      if (wall.type === 'exterior') {
-        ctx.strokeStyle = 'rgba(0,0,0,0.12)';
-        ctx.lineWidth = 1;
-        const sidingSpacing = 12; // pixels
-        for (let y = wallY + sidingSpacing; y < offsetY; y += sidingSpacing) {
-          ctx.beginPath();
-          ctx.moveTo(wallX, y);
-          ctx.lineTo(wallX + wallW, y);
-          ctx.stroke();
+        // Draw siding pattern for exterior walls
+        if (wall.type === 'exterior') {
+          ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+          ctx.lineWidth = 1;
+          const sidingSpacing = 12; // pixels
+          for (let y = wallY + sidingSpacing; y < offsetY; y += sidingSpacing) {
+            ctx.beginPath();
+            ctx.moveTo(wallX, y);
+            ctx.lineTo(wallX + wallW, y);
+            ctx.stroke();
+          }
         }
       }
 
       // Draw wall outline
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(wallX, wallY, wallW, wallH);
+      ctx.strokeStyle = isColorMode ? '#333' : '#000000';
+      ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+      if (isSketchyMode) {
+        drawSketchyRect(wallX, wallY, wallW, wallH);
+      } else {
+        ctx.strokeRect(wallX, wallY, wallW, wallH);
+      }
 
       // Draw doors on this wall
       const wallDoors = (activeFloor.doors || []).filter(door => door.wallId === wall.id);
@@ -4627,28 +4713,39 @@ function FloorPlanPro() {
         const doorX = wallX + doorPosRatio * wallW - doorWidthPx / 2;
         const doorY = offsetY - doorHeightPx;
 
-        // Door frame
-        ctx.fillStyle = '#8b4513';
-        ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
+        if (isColorMode) {
+          // Door frame
+          ctx.fillStyle = '#8b4513';
+          ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
 
-        // Door panel detail
-        ctx.strokeStyle = '#5d3a1a';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(doorX + 4, doorY + 4, doorWidthPx - 8, doorHeightPx - 8);
+          // Door panel detail
+          ctx.strokeStyle = '#5d3a1a';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(doorX + 4, doorY + 4, doorWidthPx - 8, doorHeightPx - 8);
 
-        // Door panels
-        const panelW = (doorWidthPx - 16) / 2;
-        const panelH = (doorHeightPx - 20) / 2;
-        ctx.strokeRect(doorX + 6, doorY + 8, panelW, panelH);
-        ctx.strokeRect(doorX + 8 + panelW, doorY + 8, panelW, panelH);
-        ctx.strokeRect(doorX + 6, doorY + 12 + panelH, panelW, panelH);
-        ctx.strokeRect(doorX + 8 + panelW, doorY + 12 + panelH, panelW, panelH);
+          // Door panels
+          const panelW = (doorWidthPx - 16) / 2;
+          const panelH = (doorHeightPx - 20) / 2;
+          ctx.strokeRect(doorX + 6, doorY + 8, panelW, panelH);
+          ctx.strokeRect(doorX + 8 + panelW, doorY + 8, panelW, panelH);
+          ctx.strokeRect(doorX + 6, doorY + 12 + panelH, panelW, panelH);
+          ctx.strokeRect(doorX + 8 + panelW, doorY + 12 + panelH, panelW, panelH);
 
-        // Door handle
-        ctx.fillStyle = '#c0a000';
-        ctx.beginPath();
-        ctx.arc(doorX + doorWidthPx - 12, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
-        ctx.fill();
+          // Door handle
+          ctx.fillStyle = '#c0a000';
+          ctx.beginPath();
+          ctx.arc(doorX + doorWidthPx - 12, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Line/Sketchy mode - just draw door outline
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+          if (isSketchyMode) {
+            drawSketchyRect(doorX, doorY, doorWidthPx, doorHeightPx);
+          } else {
+            ctx.strokeRect(doorX, doorY, doorWidthPx, doorHeightPx);
+          }
+        }
       });
 
       // Draw windows on this wall
@@ -4661,34 +4758,57 @@ function FloorPlanPro() {
         const winX = wallX + winPosRatio * wallW - winWidthPx / 2;
         const winY = offsetY - sillHeightPx - winHeightPx;
 
-        // Window frame (white/cream)
-        ctx.fillStyle = '#f0f8ff';
-        ctx.fillRect(winX, winY, winWidthPx, winHeightPx);
+        if (isColorMode) {
+          // Window frame (white/cream)
+          ctx.fillStyle = '#f0f8ff';
+          ctx.fillRect(winX, winY, winWidthPx, winHeightPx);
 
-        // Glass reflection effect
-        ctx.fillStyle = 'rgba(135, 206, 250, 0.3)';
-        ctx.fillRect(winX + 2, winY + 2, winWidthPx - 4, winHeightPx - 4);
+          // Glass reflection effect
+          ctx.fillStyle = 'rgba(135, 206, 250, 0.3)';
+          ctx.fillRect(winX + 2, winY + 2, winWidthPx - 4, winHeightPx - 4);
 
-        // Window frame outline
-        ctx.strokeStyle = '#333';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(winX, winY, winWidthPx, winHeightPx);
+          // Window frame outline
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(winX, winY, winWidthPx, winHeightPx);
 
-        // Window muntins (cross pattern)
-        ctx.strokeStyle = '#666';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(winX + winWidthPx / 2, winY);
-        ctx.lineTo(winX + winWidthPx / 2, winY + winHeightPx);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(winX, winY + winHeightPx / 2);
-        ctx.lineTo(winX + winWidthPx, winY + winHeightPx / 2);
-        ctx.stroke();
+          // Window muntins (cross pattern)
+          ctx.strokeStyle = '#666';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(winX + winWidthPx / 2, winY);
+          ctx.lineTo(winX + winWidthPx / 2, winY + winHeightPx);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(winX, winY + winHeightPx / 2);
+          ctx.lineTo(winX + winWidthPx, winY + winHeightPx / 2);
+          ctx.stroke();
 
-        // Window sill
-        ctx.fillStyle = '#ddd';
-        ctx.fillRect(winX - 4, winY + winHeightPx, winWidthPx + 8, 6);
+          // Window sill
+          ctx.fillStyle = '#ddd';
+          ctx.fillRect(winX - 4, winY + winHeightPx, winWidthPx + 8, 6);
+        } else {
+          // Line/Sketchy mode - draw window outline with cross
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+          if (isSketchyMode) {
+            drawSketchyRect(winX, winY, winWidthPx, winHeightPx);
+            // Cross pattern
+            drawSketchyLine(winX + winWidthPx / 2, winY, winX + winWidthPx / 2, winY + winHeightPx);
+            drawSketchyLine(winX, winY + winHeightPx / 2, winX + winWidthPx, winY + winHeightPx / 2);
+          } else {
+            ctx.strokeRect(winX, winY, winWidthPx, winHeightPx);
+            // Cross pattern
+            ctx.beginPath();
+            ctx.moveTo(winX + winWidthPx / 2, winY);
+            ctx.lineTo(winX + winWidthPx / 2, winY + winHeightPx);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(winX, winY + winHeightPx / 2);
+            ctx.lineTo(winX + winWidthPx, winY + winHeightPx / 2);
+            ctx.stroke();
+          }
+        }
       });
     });
 
@@ -4714,9 +4834,9 @@ function FloorPlanPro() {
       const roofY = offsetY - wallHeight * elevScale; // Top of walls
 
       // Draw roof based on type and viewing direction
-      ctx.fillStyle = '#8B4513';
-      ctx.strokeStyle = '#5D3A1A';
-      ctx.lineWidth = 2;
+      ctx.fillStyle = isColorMode ? '#8B4513' : 'transparent';
+      ctx.strokeStyle = isColorMode ? '#5D3A1A' : '#000000';
+      ctx.lineWidth = isSketchyMode ? 1.5 : 2;
 
       if (roof.type === 'gable') {
         // Check if we're viewing the gable end or eave side
@@ -4725,55 +4845,85 @@ function FloorPlanPro() {
 
         if (viewingGableEnd) {
           // Triangular gable end
-          ctx.beginPath();
-          ctx.moveTo(roofX, roofY);
-          ctx.lineTo(roofX + roofW / 2, roofY - roofH);
-          ctx.lineTo(roofX + roofW, roofY);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
+          if (isSketchyMode) {
+            drawSketchyLine(roofX, roofY, roofX + roofW / 2, roofY - roofH);
+            drawSketchyLine(roofX + roofW / 2, roofY - roofH, roofX + roofW, roofY);
+            drawSketchyLine(roofX + roofW, roofY, roofX, roofY);
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(roofX, roofY);
+            ctx.lineTo(roofX + roofW / 2, roofY - roofH);
+            ctx.lineTo(roofX + roofW, roofY);
+            ctx.closePath();
+            if (isColorMode) ctx.fill();
+            ctx.stroke();
+          }
         } else {
           // Eave side - just show roof edge/fascia
-          ctx.fillRect(roofX, roofY - 8, roofW, 8);
-          ctx.strokeRect(roofX, roofY - 8, roofW, 8);
+          if (isSketchyMode) {
+            drawSketchyRect(roofX, roofY - 8, roofW, 8);
+          } else {
+            if (isColorMode) ctx.fillRect(roofX, roofY - 8, roofW, 8);
+            ctx.strokeRect(roofX, roofY - 8, roofW, 8);
+          }
         }
       } else if (roof.type === 'hip') {
         // Hip roof - trapezoidal shape from any angle
         const hipInset = Math.min(roofW * 0.2, roofH);
-        ctx.beginPath();
-        ctx.moveTo(roofX, roofY);
-        ctx.lineTo(roofX + hipInset, roofY - roofH);
-        ctx.lineTo(roofX + roofW - hipInset, roofY - roofH);
-        ctx.lineTo(roofX + roofW, roofY);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        if (isSketchyMode) {
+          drawSketchyLine(roofX, roofY, roofX + hipInset, roofY - roofH);
+          drawSketchyLine(roofX + hipInset, roofY - roofH, roofX + roofW - hipInset, roofY - roofH);
+          drawSketchyLine(roofX + roofW - hipInset, roofY - roofH, roofX + roofW, roofY);
+          drawSketchyLine(roofX + roofW, roofY, roofX, roofY);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(roofX, roofY);
+          ctx.lineTo(roofX + hipInset, roofY - roofH);
+          ctx.lineTo(roofX + roofW - hipInset, roofY - roofH);
+          ctx.lineTo(roofX + roofW, roofY);
+          ctx.closePath();
+          if (isColorMode) ctx.fill();
+          ctx.stroke();
+        }
       } else if (roof.type === 'shed') {
         // Shed roof - single slope
-        ctx.beginPath();
-        ctx.moveTo(roofX, roofY);
-        ctx.lineTo(roofX, roofY - roofH);
-        ctx.lineTo(roofX + roofW, roofY - roofH * 0.3);
-        ctx.lineTo(roofX + roofW, roofY);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        if (isSketchyMode) {
+          drawSketchyLine(roofX, roofY, roofX, roofY - roofH);
+          drawSketchyLine(roofX, roofY - roofH, roofX + roofW, roofY - roofH * 0.3);
+          drawSketchyLine(roofX + roofW, roofY - roofH * 0.3, roofX + roofW, roofY);
+          drawSketchyLine(roofX + roofW, roofY, roofX, roofY);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(roofX, roofY);
+          ctx.lineTo(roofX, roofY - roofH);
+          ctx.lineTo(roofX + roofW, roofY - roofH * 0.3);
+          ctx.lineTo(roofX + roofW, roofY);
+          ctx.closePath();
+          if (isColorMode) ctx.fill();
+          ctx.stroke();
+        }
       } else if (roof.type === 'flat') {
         // Flat roof - just a cap
-        ctx.fillRect(roofX, roofY - 10, roofW, 10);
-        ctx.strokeRect(roofX, roofY - 10, roofW, 10);
+        if (isSketchyMode) {
+          drawSketchyRect(roofX, roofY - 10, roofW, 10);
+        } else {
+          if (isColorMode) ctx.fillRect(roofX, roofY - 10, roofW, 10);
+          ctx.strokeRect(roofX, roofY - 10, roofW, 10);
+        }
       }
 
-      // Roof shingle lines
-      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-      ctx.lineWidth = 1;
-      if (roof.type === 'gable' || roof.type === 'hip') {
-        for (let i = 1; i < 6; i++) {
-          const lineY = roofY - (roofH * i / 6);
-          ctx.beginPath();
-          ctx.moveTo(roofX + 5, lineY);
-          ctx.lineTo(roofX + roofW - 5, lineY);
-          ctx.stroke();
+      // Roof shingle lines (only in color mode)
+      if (isColorMode) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+        ctx.lineWidth = 1;
+        if (roof.type === 'gable' || roof.type === 'hip') {
+          for (let i = 1; i < 6; i++) {
+            const lineY = roofY - (roofH * i / 6);
+            ctx.beginPath();
+            ctx.moveTo(roofX + 5, lineY);
+            ctx.lineTo(roofX + roofW - 5, lineY);
+            ctx.stroke();
+          }
         }
       }
     });
@@ -4784,7 +4934,7 @@ function FloorPlanPro() {
     ctx.textAlign = 'left';
     ctx.fillText(`Scale: 1 grid = 6"`, 10, height - 10);
 
-  }, [viewMode, activeElevation, activeFloor]);
+  }, [viewMode, activeElevation, activeFloor, elevationRenderMode]);
 
   // Reset drawing states when tool changes
   const prevToolRef = useRef(tool);
@@ -9112,7 +9262,146 @@ function FloorPlanPro() {
               </div>
             </div>
           )}
-          
+
+          {/* Roof Editor Panel */}
+          {showRoofEditor && selectedItems[0]?.type === 'roof' && !editorsMinimized && (
+            <div
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                position: isMobile ? 'fixed' : 'absolute',
+                top: isMobile ? '60px' : '16px',
+                right: isMobile ? '10px' : '16px',
+                background: 'rgba(8,12,16,0.98)',
+                border: '1px solid rgba(0,200,255,0.2)',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '14px',
+                width: isMobile ? '180px' : '200px',
+                zIndex: 250,
+                maxHeight: isMobile ? '60vh' : 'auto',
+                overflowY: 'auto',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>Edit Roof</span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button onClick={() => setEditorsMinimized(true)} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer', fontSize: '14px', padding: '4px' }} title="Minimize">−</button>
+                  <button onClick={() => { setShowRoofEditor(false); setSelectedItems([]); }} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer', fontSize: '18px', padding: '4px' }}>×</button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Roof Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                  {Object.entries(ROOF_TYPES).map(([type, config]) => (
+                    <button
+                      key={type}
+                      onClick={() => updateActiveFloor(f => ({
+                        ...f,
+                        roofs: f.roofs.map(r =>
+                          r.id === selectedItems[0].item.id ? { ...r, type } : r
+                        )
+                      }))}
+                      style={{
+                        padding: '6px',
+                        background: selectedItems[0].item.type === type ? 'rgba(0,200,255,0.2)' : 'transparent',
+                        border: `1px solid ${selectedItems[0].item.type === type ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: '4px',
+                        color: selectedItems[0].item.type === type ? '#00c8ff' : '#8899aa',
+                        fontSize: '9px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {config.icon} {config.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Roof Pitch</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
+                  {Object.entries(ROOF_PITCHES).map(([pitch, config]) => (
+                    <button
+                      key={pitch}
+                      onClick={() => updateActiveFloor(f => ({
+                        ...f,
+                        roofs: f.roofs.map(r =>
+                          r.id === selectedItems[0].item.id ? { ...r, pitch } : r
+                        )
+                      }))}
+                      style={{
+                        padding: '4px',
+                        background: selectedItems[0].item.pitch === pitch ? 'rgba(0,200,255,0.2)' : 'transparent',
+                        border: `1px solid ${selectedItems[0].item.pitch === pitch ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: '4px',
+                        color: selectedItems[0].item.pitch === pitch ? '#00c8ff' : '#8899aa',
+                        fontSize: '8px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {config.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <MeasurementInput
+                label="Overhang"
+                value={selectedItems[0].item.overhang / 12}
+                onChange={(val) => updateActiveFloor(f => ({
+                  ...f,
+                  roofs: f.roofs.map(r =>
+                    r.id === selectedItems[0].item.id ? { ...r, overhang: val * 12 } : r
+                  )
+                }))}
+                units={units}
+                formatMeasurement={formatMeasurement}
+              />
+
+              <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(0,200,255,0.05)', borderRadius: '4px' }}>
+                <div style={{ color: '#6080a0', fontSize: '9px', marginBottom: '4px' }}>Roof Info</div>
+                <div style={{ color: '#00c8ff', fontSize: '10px' }}>
+                  {formatMeasurement(pixelsToFeet(selectedItems[0].item.width))} × {formatMeasurement(pixelsToFeet(selectedItems[0].item.height))}
+                </div>
+                <div style={{ color: '#6080a0', fontSize: '9px' }}>
+                  Type: {ROOF_TYPES[selectedItems[0].item.type]?.label || 'Gable'} | Pitch: {selectedItems[0].item.pitch}
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  updateActiveFloor(f => ({
+                    ...f,
+                    roofs: f.roofs.filter(r => r.id !== selectedItems[0].item.id)
+                  }));
+                  setSelectedItems([]);
+                  setShowRoofEditor(false);
+                }}
+                style={{
+                  width: '100%',
+                  marginTop: '12px',
+                  padding: '10px',
+                  background: 'rgba(255,80,80,0.15)',
+                  border: '1px solid rgba(255,80,80,0.4)',
+                  borderRadius: '6px',
+                  color: '#ff6666',
+                  fontSize: '11px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                }}
+              >
+                Delete Roof
+              </button>
+            </div>
+          )}
+
           {/* Door Editor Panel */}
           {showDoorWindowEditor && selectedItems[0]?.type === 'door' && !editorsMinimized && (
             <div
@@ -10545,6 +10834,33 @@ function FloorPlanPro() {
                       }}
                     >
                       {dir}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Render Mode Controls */}
+                <div style={{ display: 'flex', gap: '4px', marginLeft: '12px', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '12px' }}>
+                  <span style={{ color: '#6080a0', fontSize: '10px', marginRight: '4px', alignSelf: 'center' }}>Style:</span>
+                  {[
+                    { id: 'color', label: 'Color', icon: '🎨' },
+                    { id: 'line', label: 'Line', icon: '✏️' },
+                    { id: 'sketchy', label: 'Sketchy', icon: '✍️' },
+                  ].map(mode => (
+                    <button
+                      key={mode.id}
+                      onClick={() => setElevationRenderMode(mode.id)}
+                      style={{
+                        padding: '6px 10px',
+                        background: elevationRenderMode === mode.id ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${elevationRenderMode === mode.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: '4px',
+                        color: elevationRenderMode === mode.id ? '#00c8ff' : '#6080a0',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        fontWeight: elevationRenderMode === mode.id ? '600' : '400',
+                      }}
+                    >
+                      {mode.icon} {mode.label}
                     </button>
                   ))}
                 </div>
