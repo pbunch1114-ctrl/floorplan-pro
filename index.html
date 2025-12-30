@@ -126,6 +126,25 @@ const WALL_DETAIL_LEVELS = {
   detailed: { label: 'Detailed', description: 'Full construction' },
 };
 
+// Roof types
+const ROOF_TYPES = {
+  gable: { label: 'Gable', description: 'Two sloping sides meeting at ridge', icon: '⌂' },
+  hip: { label: 'Hip', description: 'Slopes on all four sides', icon: '⌂' },
+  shed: { label: 'Shed', description: 'Single sloping surface', icon: '/' },
+  flat: { label: 'Flat', description: 'Level roof surface', icon: '▭' },
+  gambrel: { label: 'Gambrel', description: 'Barn-style with two slopes per side', icon: '⌂' },
+};
+
+const ROOF_PITCHES = {
+  '3:12': { rise: 3, run: 12, label: '3:12 (14°)' },
+  '4:12': { rise: 4, run: 12, label: '4:12 (18°)' },
+  '5:12': { rise: 5, run: 12, label: '5:12 (22°)' },
+  '6:12': { rise: 6, run: 12, label: '6:12 (27°)' },
+  '8:12': { rise: 8, run: 12, label: '8:12 (34°)' },
+  '10:12': { rise: 10, run: 12, label: '10:12 (40°)' },
+  '12:12': { rise: 12, run: 12, label: '12:12 (45°)' },
+};
+
 const FURNITURE_LIBRARY = [
   { id: 'bed-king', name: 'King Bed', category: 'bedroom', width: 80, height: 76, icon: '🛏️', shape: 'bed' },
   { id: 'bed-queen', name: 'Queen Bed', category: 'bedroom', width: 60, height: 80, icon: '🛏️', shape: 'bed' },
@@ -821,14 +840,15 @@ function FloorPlanPro() {
   
   // Core state
   const [tool, setTool] = useState('wall');
+  const [toolTab, setToolTab] = useState('draw'); // 'draw', 'modify', 'annotate', 'view'
   const [wallType, setWallType] = useState('exterior');
-  const [floors, setFloors] = useState([{ 
-    id: 'floor-1', 
-    name: 'Floor 1', 
-    walls: [], 
-    doors: [], 
-    windows: [], 
-    furniture: [], 
+  const [floors, setFloors] = useState([{
+    id: 'floor-1',
+    name: 'Floor 1',
+    walls: [],
+    doors: [],
+    windows: [],
+    furniture: [],
     rooms: [],
     stairs: [],
     electrical: [],
@@ -840,6 +860,7 @@ function FloorPlanPro() {
     polylines: [],
     hatches: [],
     porches: [],
+    roofs: [],
   }]);
   const [activeFloorId, setActiveFloorId] = useState('floor-1');
   const [selectedItems, setSelectedItems] = useState([]);
@@ -932,7 +953,14 @@ function FloorPlanPro() {
   // UI state
   const [activePanel, setActivePanel] = useState(null); // 'furniture', 'stairs', 'electrical', 'plumbing'
   const [showRoomPanel, setShowRoomPanel] = useState(false);
+  const [showRoofPanel, setShowRoofPanel] = useState(false);
   const [show3D, setShow3D] = useState(false);
+
+  // Roof tool state
+  const [roofType, setRoofType] = useState('gable');
+  const [roofPitch, setRoofPitch] = useState('6:12');
+  const [roofStart, setRoofStart] = useState(null);
+  const [roofOverhang, setRoofOverhang] = useState(12); // inches
   const [furnitureCategory, setFurnitureCategory] = useState('all');
   const [showWallEditor, setShowWallEditor] = useState(false);
   const [showDoorWindowEditor, setShowDoorWindowEditor] = useState(false);
@@ -1705,7 +1733,16 @@ function FloorPlanPro() {
         return { type: 'porch', item: porch };
       }
     }
-    
+
+    // Check roofs
+    for (const roof of (activeFloor.roofs || [])) {
+      const overhang = (roof.overhang || 12) * (GRID_SIZE / 6) / 12;
+      if (point.x >= roof.x - overhang && point.x <= roof.x + roof.width + overhang &&
+          point.y >= roof.y - overhang && point.y <= roof.y + roof.height + overhang) {
+        return { type: 'roof', item: roof };
+      }
+    }
+
     // Check lines
     for (const line of (activeFloor.lines || [])) {
       const dx = line.end.x - line.start.x;
@@ -2072,6 +2109,11 @@ function FloorPlanPro() {
       }
     } else if (tool === 'porch') {
       // Draw porch (rectangle-based)
+      setIsDrawing(true);
+      setDrawStart(snappedPos);
+      setDrawEnd(snappedPos);
+    } else if (tool === 'roof') {
+      // Draw roof (rectangle-based footprint)
       setIsDrawing(true);
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
@@ -3144,14 +3186,33 @@ function FloorPlanPro() {
           };
           updateActiveFloor(f => ({ ...f, porches: [...(f.porches || []), newPorch] }));
         }
+      } else if (tool === 'roof') {
+        const width = Math.abs(drawEnd.x - drawStart.x);
+        const height = Math.abs(drawEnd.y - drawStart.y);
+        if (width >= GRID_SIZE && height >= GRID_SIZE) {
+          const newRoof = {
+            id: generateId(),
+            x: Math.min(drawStart.x, drawEnd.x),
+            y: Math.min(drawStart.y, drawEnd.y),
+            width,
+            height,
+            type: roofType,
+            pitch: roofPitch,
+            overhang: roofOverhang,
+            ridgeDirection: width > height ? 'horizontal' : 'vertical', // Ridge runs along longer dimension
+          };
+          updateActiveFloor(f => ({ ...f, roofs: [...(f.roofs || []), newRoof] }));
+          setSelectedItems([{ type: 'roof', item: newRoof }]);
+          setShowRoofPanel(true);
+        }
       }
     }
-    
+
     setIsDrawing(false);
     setDrawStart(null);
     setDrawEnd(null);
     setWallDrawSnap(null);
-  }, [isPanning, isDrawing, tool, drawStart, drawEnd, wallType, porchType, dragItem, activeGrip, updateActiveFloor]);
+  }, [isPanning, isDrawing, tool, drawStart, drawEnd, wallType, porchType, roofType, roofPitch, roofOverhang, dragItem, activeGrip, updateActiveFloor]);
   
   // ============================================================================
   // ZOOM
@@ -3263,12 +3324,18 @@ function FloorPlanPro() {
           ...f,
           porches: (f.porches || []).filter(p => p.id !== sel.item.id),
         }));
+      } else if (sel.type === 'roof') {
+        updateActiveFloor(f => ({
+          ...f,
+          roofs: (f.roofs || []).filter(r => r.id !== sel.item.id),
+        }));
       }
     });
-    
+
     setSelectedItems([]);
     setShowWallEditor(false);
     setShowDoorWindowEditor(false);
+    setShowRoofPanel(false);
   };
   
   // Copy selected items to clipboard
@@ -4814,7 +4881,233 @@ function FloorPlanPro() {
         ctx.fillText(`${formatMeasurement(porchWFt)} × ${formatMeasurement(porchHFt)}`, porch.x + porch.width / 2, porch.y + porch.height / 2 + 15);
       });
     }
-    
+
+    // Draw roofs
+    (activeFloor.roofs || []).forEach(roof => {
+      const isSelected = selectedItems.some(s => s.type === 'roof' && s.item.id === roof.id);
+      const roofDef = ROOF_TYPES[roof.type] || ROOF_TYPES.gable;
+      const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
+      const overhang = (roof.overhang || 12) * (GRID_SIZE / 6) / 12; // Convert inches to pixels
+
+      // Roof outline with overhang
+      const roofX = roof.x - overhang;
+      const roofY = roof.y - overhang;
+      const roofW = roof.width + overhang * 2;
+      const roofH = roof.height + overhang * 2;
+
+      // Fill with roof color (semi-transparent)
+      ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.15)' : 'rgba(139,90,43,0.1)';
+      ctx.fillRect(roofX, roofY, roofW, roofH);
+
+      // Draw roof pattern based on type
+      ctx.strokeStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.6)';
+      ctx.lineWidth = isSelected ? 2 : 1;
+
+      if (roof.type === 'gable' || roof.type === 'gambrel') {
+        // Ridge line
+        ctx.setLineDash([]);
+        ctx.lineWidth = isSelected ? 3 : 2;
+        if (roof.ridgeDirection === 'horizontal') {
+          // Ridge runs horizontally (east-west)
+          const ridgeY = roofY + roofH / 2;
+          ctx.beginPath();
+          ctx.moveTo(roofX, ridgeY);
+          ctx.lineTo(roofX + roofW, ridgeY);
+          ctx.stroke();
+
+          // Slope lines from ridge to eaves
+          ctx.lineWidth = 1;
+          ctx.setLineDash([8, 4]);
+          const slopeSpacing = 30;
+          for (let x = roofX + slopeSpacing; x < roofX + roofW; x += slopeSpacing) {
+            // North slope
+            ctx.beginPath();
+            ctx.moveTo(x, ridgeY);
+            ctx.lineTo(x, roofY);
+            ctx.stroke();
+            // South slope
+            ctx.beginPath();
+            ctx.moveTo(x, ridgeY);
+            ctx.lineTo(x, roofY + roofH);
+            ctx.stroke();
+          }
+        } else {
+          // Ridge runs vertically (north-south)
+          const ridgeX = roofX + roofW / 2;
+          ctx.beginPath();
+          ctx.moveTo(ridgeX, roofY);
+          ctx.lineTo(ridgeX, roofY + roofH);
+          ctx.stroke();
+
+          // Slope lines from ridge to eaves
+          ctx.lineWidth = 1;
+          ctx.setLineDash([8, 4]);
+          const slopeSpacing = 30;
+          for (let y = roofY + slopeSpacing; y < roofY + roofH; y += slopeSpacing) {
+            // West slope
+            ctx.beginPath();
+            ctx.moveTo(ridgeX, y);
+            ctx.lineTo(roofX, y);
+            ctx.stroke();
+            // East slope
+            ctx.beginPath();
+            ctx.moveTo(ridgeX, y);
+            ctx.lineTo(roofX + roofW, y);
+            ctx.stroke();
+          }
+        }
+      } else if (roof.type === 'hip') {
+        // Hip roof - slopes on all four sides
+        ctx.setLineDash([]);
+        ctx.lineWidth = isSelected ? 2 : 1.5;
+        const centerX = roofX + roofW / 2;
+        const centerY = roofY + roofH / 2;
+
+        // Determine ridge based on shape
+        if (roofW > roofH) {
+          // Horizontal ridge
+          const ridgeLen = (roofW - roofH) / 2;
+          const ridgeStartX = centerX - ridgeLen;
+          const ridgeEndX = centerX + ridgeLen;
+          // Ridge line
+          ctx.beginPath();
+          ctx.moveTo(ridgeStartX, centerY);
+          ctx.lineTo(ridgeEndX, centerY);
+          ctx.stroke();
+          // Hip lines to corners
+          ctx.beginPath();
+          ctx.moveTo(ridgeStartX, centerY);
+          ctx.lineTo(roofX, roofY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(ridgeStartX, centerY);
+          ctx.lineTo(roofX, roofY + roofH);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(ridgeEndX, centerY);
+          ctx.lineTo(roofX + roofW, roofY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(ridgeEndX, centerY);
+          ctx.lineTo(roofX + roofW, roofY + roofH);
+          ctx.stroke();
+        } else {
+          // Vertical ridge or pyramid
+          const ridgeLen = (roofH - roofW) / 2;
+          const ridgeStartY = centerY - ridgeLen;
+          const ridgeEndY = centerY + ridgeLen;
+          if (ridgeLen > 0) {
+            ctx.beginPath();
+            ctx.moveTo(centerX, ridgeStartY);
+            ctx.lineTo(centerX, ridgeEndY);
+            ctx.stroke();
+          }
+          // Hip lines to corners
+          ctx.beginPath();
+          ctx.moveTo(centerX, ridgeStartY);
+          ctx.lineTo(roofX, roofY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(centerX, ridgeStartY);
+          ctx.lineTo(roofX + roofW, roofY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(centerX, ridgeEndY);
+          ctx.lineTo(roofX, roofY + roofH);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(centerX, ridgeEndY);
+          ctx.lineTo(roofX + roofW, roofY + roofH);
+          ctx.stroke();
+        }
+      } else if (roof.type === 'shed') {
+        // Shed roof - single slope
+        ctx.setLineDash([8, 4]);
+        ctx.lineWidth = 1;
+        const slopeSpacing = 20;
+        if (roof.ridgeDirection === 'horizontal') {
+          for (let x = roofX + slopeSpacing; x < roofX + roofW; x += slopeSpacing) {
+            ctx.beginPath();
+            ctx.moveTo(x, roofY);
+            ctx.lineTo(x, roofY + roofH);
+            ctx.stroke();
+          }
+          // Arrow indicating slope direction
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(roofX + roofW / 2, roofY + 10);
+          ctx.lineTo(roofX + roofW / 2, roofY + roofH - 10);
+          ctx.lineTo(roofX + roofW / 2 - 8, roofY + roofH - 20);
+          ctx.moveTo(roofX + roofW / 2, roofY + roofH - 10);
+          ctx.lineTo(roofX + roofW / 2 + 8, roofY + roofH - 20);
+          ctx.stroke();
+        } else {
+          for (let y = roofY + slopeSpacing; y < roofY + roofH; y += slopeSpacing) {
+            ctx.beginPath();
+            ctx.moveTo(roofX, y);
+            ctx.lineTo(roofX + roofW, y);
+            ctx.stroke();
+          }
+          // Arrow indicating slope direction
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(roofX + 10, roofY + roofH / 2);
+          ctx.lineTo(roofX + roofW - 10, roofY + roofH / 2);
+          ctx.lineTo(roofX + roofW - 20, roofY + roofH / 2 - 8);
+          ctx.moveTo(roofX + roofW - 10, roofY + roofH / 2);
+          ctx.lineTo(roofX + roofW - 20, roofY + roofH / 2 + 8);
+          ctx.stroke();
+        }
+      } else if (roof.type === 'flat') {
+        // Flat roof - just outline with drainage pattern
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 0.5;
+        // Grid pattern for flat roof
+        const gridSpacing = 20;
+        for (let x = roofX + gridSpacing; x < roofX + roofW; x += gridSpacing) {
+          ctx.beginPath();
+          ctx.moveTo(x, roofY);
+          ctx.lineTo(x, roofY + roofH);
+          ctx.stroke();
+        }
+        for (let y = roofY + gridSpacing; y < roofY + roofH; y += gridSpacing) {
+          ctx.beginPath();
+          ctx.moveTo(roofX, y);
+          ctx.lineTo(roofX + roofW, y);
+          ctx.stroke();
+        }
+      }
+
+      ctx.setLineDash([]);
+
+      // Outer border (eaves line)
+      ctx.strokeStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.8)';
+      ctx.lineWidth = isSelected ? 2.5 : 2;
+      ctx.strokeRect(roofX, roofY, roofW, roofH);
+
+      // Building footprint (inner dashed line)
+      ctx.strokeStyle = isSelected ? 'rgba(0,255,170,0.5)' : 'rgba(139,90,43,0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(roof.x, roof.y, roof.width, roof.height);
+      ctx.setLineDash([]);
+
+      // Label
+      ctx.font = 'bold 11px "SF Pro", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = isSelected ? '#00ffaa' : 'rgba(139,90,43,0.9)';
+      ctx.fillText(`${roofDef.label} Roof`, roof.x + roof.width / 2, roof.y + roof.height / 2 - 8);
+
+      // Pitch and dimensions
+      ctx.font = '10px "SF Mono", monospace';
+      ctx.fillStyle = 'rgba(139,90,43,0.7)';
+      ctx.fillText(`${pitchDef.label}`, roof.x + roof.width / 2, roof.y + roof.height / 2 + 6);
+      const roofWFt = pixelsToFeet(roof.width);
+      const roofHFt = pixelsToFeet(roof.height);
+      ctx.fillText(`${formatMeasurement(roofWFt)} × ${formatMeasurement(roofHFt)}`, roof.x + roof.width / 2, roof.y + roof.height / 2 + 18);
+    });
+
     // Draw lines
     if (layers.lines?.visible) {
       (activeFloor.lines || []).forEach(line => {
@@ -6789,9 +7082,73 @@ function FloorPlanPro() {
         ctx.fillText(`${formatMeasurement(pixelsToFeet(w))} × ${formatMeasurement(pixelsToFeet(h))}`, x + w / 2, y + h / 2 - 10);
         ctx.font = '11px sans-serif';
         ctx.fillText(porchDef.name, x + w / 2, y + h / 2 + 8);
+      } else if (tool === 'roof') {
+        const x = Math.min(drawStart.x, drawEnd.x);
+        const y = Math.min(drawStart.y, drawEnd.y);
+        const w = Math.abs(drawEnd.x - drawStart.x);
+        const h = Math.abs(drawEnd.y - drawStart.y);
+        const roofDef = ROOF_TYPES[roofType] || ROOF_TYPES.gable;
+        const overhang = roofOverhang * (GRID_SIZE / 6) / 12;
+
+        // Building footprint
+        ctx.fillStyle = 'rgba(139,90,43,0.15)';
+        ctx.fillRect(x, y, w, h);
+
+        // Roof outline with overhang (dashed)
+        ctx.strokeStyle = '#8b5a2b';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
+        ctx.strokeRect(x - overhang, y - overhang, w + overhang * 2, h + overhang * 2);
+        ctx.setLineDash([]);
+
+        // Building footprint outline (solid)
+        ctx.strokeStyle = 'rgba(139,90,43,0.6)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, w, h);
+
+        // Ridge line preview
+        ctx.strokeStyle = '#8b5a2b';
+        ctx.lineWidth = 2;
+        if (roofType === 'gable' || roofType === 'gambrel') {
+          if (w > h) {
+            // Horizontal ridge
+            ctx.beginPath();
+            ctx.moveTo(x - overhang, y + h / 2);
+            ctx.lineTo(x + w + overhang, y + h / 2);
+            ctx.stroke();
+          } else {
+            // Vertical ridge
+            ctx.beginPath();
+            ctx.moveTo(x + w / 2, y - overhang);
+            ctx.lineTo(x + w / 2, y + h + overhang);
+            ctx.stroke();
+          }
+        } else if (roofType === 'hip') {
+          const centerX = x + w / 2;
+          const centerY = y + h / 2;
+          // Draw hip lines to corners
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(x - overhang, y - overhang);
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(x + w + overhang, y - overhang);
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(x - overhang, y + h + overhang);
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(x + w + overhang, y + h + overhang);
+          ctx.stroke();
+        }
+
+        // Show dimensions and type
+        ctx.fillStyle = '#8b5a2b';
+        ctx.font = 'bold 12px "SF Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${formatMeasurement(pixelsToFeet(w))} × ${formatMeasurement(pixelsToFeet(h))}`, x + w / 2, y + h / 2 - 10);
+        ctx.font = '11px sans-serif';
+        ctx.fillText(`${roofDef.label} Roof`, x + w / 2, y + h / 2 + 8);
       }
     }
-    
+
     // Draw plumbing line in progress
     if (plumbingLineStart && tool === 'plumbing-line') {
       const pos = getPointerPos({ clientX: 0, clientY: 0 }); // Will update on move
@@ -7668,25 +8025,74 @@ function FloorPlanPro() {
           </button>
         )}
         
-        {/* Desktop: Full toolbar */}
+        {/* Desktop: Tabbed toolbar */}
         {!isMobile && (
           <>
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              <ToolButton name="select" icon="↖" label="SELECT" />
-              <ToolButton name="move" icon="✥" label="MOVE" />
-              <ToolButton name="rotate" icon="↻" label="ROTATE" />
-              <ToolButton name="wall" icon="▭" label="WALL" />
-              <ToolButton name="door" icon="🚪" label="DOOR" />
-              <ToolButton name="window" icon="⊞" label="WINDOW" />
-              <ToolButton name="room" icon="⬜" label="ROOM" />
-              <ToolButton name="line" icon="╱" label="LINE" />
-              <ToolButton name="text" icon="T" label="TEXT" />
-              <ToolButton name="measure" icon="📏" label="MEASURE" />
-              <ToolButton name="dimension" icon="↔" label="DIMENSION" />
-              <ToolButton name="extend" icon="⟼" label="EXTEND" />
-              <ToolButton name="trim" icon="✂" label="TRIM" />
-              <ToolButton name="corner" icon="⌐" label="CORNER" />
-              <ToolButton name="pan" icon="✋" label="PAN" />
+            {/* Tool Tabs */}
+            <div style={{ display: 'flex', gap: '2px', marginRight: '8px' }}>
+              {[
+                { id: 'draw', label: 'Draw', icon: '✏️' },
+                { id: 'modify', label: 'Modify', icon: '🔧' },
+                { id: 'annotate', label: 'Annotate', icon: '📝' },
+                { id: 'view', label: 'View', icon: '👁️' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setToolTab(tab.id)}
+                  style={{
+                    padding: '6px 10px',
+                    background: toolTab === tab.id ? 'rgba(0,200,255,0.15)' : 'transparent',
+                    border: 'none',
+                    borderBottom: toolTab === tab.id ? '2px solid #00c8ff' : '2px solid transparent',
+                    color: toolTab === tab.id ? '#00c8ff' : '#6080a0',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <span style={{ fontSize: '12px' }}>{tab.icon}</span>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab-specific tools */}
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '8px' }}>
+              {toolTab === 'draw' && (
+                <>
+                  <ToolButton name="wall" icon="▭" label="WALL" />
+                  <ToolButton name="door" icon="🚪" label="DOOR" />
+                  <ToolButton name="window" icon="⊞" label="WINDOW" />
+                  <ToolButton name="room" icon="⬜" label="ROOM" />
+                  <ToolButton name="roof" icon="🏠" label="ROOF" />
+                  <ToolButton name="line" icon="╱" label="LINE" />
+                </>
+              )}
+              {toolTab === 'modify' && (
+                <>
+                  <ToolButton name="select" icon="↖" label="SELECT" />
+                  <ToolButton name="move" icon="✥" label="MOVE" />
+                  <ToolButton name="rotate" icon="↻" label="ROTATE" />
+                  <ToolButton name="extend" icon="⟼" label="EXTEND" />
+                  <ToolButton name="trim" icon="✂" label="TRIM" />
+                  <ToolButton name="corner" icon="⌐" label="CORNER" />
+                </>
+              )}
+              {toolTab === 'annotate' && (
+                <>
+                  <ToolButton name="text" icon="T" label="TEXT" />
+                  <ToolButton name="dimension" icon="↔" label="DIM" />
+                  <ToolButton name="measure" icon="📏" label="MEASURE" />
+                </>
+              )}
+              {toolTab === 'view' && (
+                <>
+                  <ToolButton name="pan" icon="✋" label="PAN" />
+                  <ToolButton name="select" icon="↖" label="SELECT" />
+                </>
+              )}
             </div>
             
             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -7755,82 +8161,174 @@ function FloorPlanPro() {
             </div>
           </div>
           
-          {/* Drawing Tools */}
+          {/* Tool Tabs for Mobile */}
           <div style={{ marginBottom: '16px' }}>
-            <div style={{ color: '#6080a0', fontSize: '11px', marginBottom: '8px' }}>DRAWING TOOLS</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', overflowX: 'auto' }}>
               {[
-                { name: 'select', icon: '↖', label: 'Select' },
-                { name: 'move', icon: '✥', label: 'Move' },
-                { name: 'rotate', icon: '↻', label: 'Rotate' },
-                { name: 'wall', icon: '▭', label: 'Wall' },
-                { name: 'door', icon: '🚪', label: 'Door' },
-                { name: 'window', icon: '⊞', label: 'Window' },
-                { name: 'room', icon: '⬜', label: 'Room' },
-                { name: 'line', icon: '╱', label: 'Line' },
-                { name: 'text', icon: 'T', label: 'Text' },
-                { name: 'measure', icon: '📏', label: 'Measure' },
-                { name: 'dimension', icon: '↔', label: 'Dimension' },
-                { name: 'extend', icon: '⟼', label: 'Extend' },
-                { name: 'trim', icon: '✂', label: 'Trim' },
-                { name: 'corner', icon: '⌐', label: 'Corner' },
-                { name: 'pan', icon: '✋', label: 'Pan' },
-              ].map(t => (
+                { id: 'draw', label: 'Draw', icon: '✏️' },
+                { id: 'modify', label: 'Modify', icon: '🔧' },
+                { id: 'annotate', label: 'Annotate', icon: '📝' },
+                { id: 'objects', label: 'Objects', icon: '🪑' },
+              ].map(tab => (
                 <button
-                  key={t.name}
-                  onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
+                  key={tab.id}
+                  onClick={() => setToolTab(tab.id)}
                   style={{
-                    padding: '14px',
-                    background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                    borderRadius: '10px',
-                    color: tool === t.name ? '#00c8ff' : '#8899aa',
+                    padding: '10px 16px',
+                    background: toolTab === tab.id ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${toolTab === tab.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: '8px',
+                    color: toolTab === tab.id ? '#00c8ff' : '#8899aa',
                     fontSize: '12px',
                     cursor: 'pointer',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
                   }}
                 >
-                  <span style={{ fontSize: '20px' }}>{t.icon}</span>
-                  {t.label}
+                  <span style={{ fontSize: '16px' }}>{tab.icon}</span>
+                  {tab.label}
                 </button>
               ))}
             </div>
-          </div>
-          
-          {/* Objects */}
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ color: '#6080a0', fontSize: '11px', marginBottom: '8px' }}>ADD OBJECTS</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-              {[
-                { panel: 'furniture', icon: '🪑', label: 'Furniture' },
-                { panel: 'stairs', icon: '🪜', label: 'Stairs' },
-                { panel: 'electrical', icon: '⚡', label: 'Electrical' },
-                { panel: 'plumbing', icon: '🔵', label: 'Plumbing' },
-              ].map(p => (
-                <button
-                  key={p.panel}
-                  onClick={() => { setActivePanel(p.panel); setShowMobileMenu(false); }}
-                  style={{
-                    padding: '14px',
-                    background: activePanel === p.panel ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                    border: `1px solid ${activePanel === p.panel ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                    borderRadius: '10px',
-                    color: activePanel === p.panel ? '#00c8ff' : '#8899aa',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <span style={{ fontSize: '22px' }}>{p.icon}</span>
-                  {p.label}
-                </button>
-              ))}
-            </div>
+
+            {/* Draw Tools */}
+            {toolTab === 'draw' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                {[
+                  { name: 'wall', icon: '▭', label: 'Wall' },
+                  { name: 'door', icon: '🚪', label: 'Door' },
+                  { name: 'window', icon: '⊞', label: 'Window' },
+                  { name: 'room', icon: '⬜', label: 'Room' },
+                  { name: 'roof', icon: '🏠', label: 'Roof' },
+                  { name: 'line', icon: '╱', label: 'Line' },
+                ].map(t => (
+                  <button
+                    key={t.name}
+                    onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
+                    style={{
+                      padding: '14px',
+                      background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '10px',
+                      color: tool === t.name ? '#00c8ff' : '#8899aa',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '20px' }}>{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Modify Tools */}
+            {toolTab === 'modify' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                {[
+                  { name: 'select', icon: '↖', label: 'Select' },
+                  { name: 'move', icon: '✥', label: 'Move' },
+                  { name: 'rotate', icon: '↻', label: 'Rotate' },
+                  { name: 'extend', icon: '⟼', label: 'Extend' },
+                  { name: 'trim', icon: '✂', label: 'Trim' },
+                  { name: 'corner', icon: '⌐', label: 'Corner' },
+                  { name: 'pan', icon: '✋', label: 'Pan' },
+                ].map(t => (
+                  <button
+                    key={t.name}
+                    onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
+                    style={{
+                      padding: '14px',
+                      background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '10px',
+                      color: tool === t.name ? '#00c8ff' : '#8899aa',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '20px' }}>{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Annotate Tools */}
+            {toolTab === 'annotate' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                {[
+                  { name: 'text', icon: 'T', label: 'Text' },
+                  { name: 'dimension', icon: '↔', label: 'Dimension' },
+                  { name: 'measure', icon: '📏', label: 'Measure' },
+                ].map(t => (
+                  <button
+                    key={t.name}
+                    onClick={() => { setTool(t.name); setShowMobileMenu(false); }}
+                    style={{
+                      padding: '14px',
+                      background: tool === t.name ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${tool === t.name ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '10px',
+                      color: tool === t.name ? '#00c8ff' : '#8899aa',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <span style={{ fontSize: '20px' }}>{t.icon}</span>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Objects */}
+            {toolTab === 'objects' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                {[
+                  { panel: 'furniture', icon: '🪑', label: 'Furniture' },
+                  { panel: 'stairs', icon: '🪜', label: 'Stairs' },
+                  { panel: 'electrical', icon: '⚡', label: 'Electrical' },
+                  { panel: 'plumbing', icon: '🔵', label: 'Plumbing' },
+                  { panel: 'hatch', icon: '▨', label: 'Hatch' },
+                  { panel: 'porch', icon: '🏠', label: 'Porch' },
+                ].map(p => (
+                  <button
+                    key={p.panel}
+                    onClick={() => { setActivePanel(p.panel); setShowMobileMenu(false); }}
+                    style={{
+                      padding: '14px',
+                      background: activePanel === p.panel ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${activePanel === p.panel ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '10px',
+                      color: activePanel === p.panel ? '#00c8ff' : '#8899aa',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <span style={{ fontSize: '22px' }}>{p.icon}</span>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           
           {/* Actions */}
@@ -10803,9 +11301,189 @@ function FloorPlanPro() {
               </div>
             </div>
           )}
-          
-          {/* Stats */}
-          {viewMode === 'model' && (
+          {showRoofPanel && selectedItems[0]?.type === 'roof' && !editorsMinimized && (
+            <div style={{
+              position: isMobile ? 'fixed' : 'absolute',
+              top: isMobile ? '60px' : '16px',
+              right: isMobile ? '10px' : '16px',
+              background: 'rgba(8,12,16,0.98)',
+              border: '1px solid rgba(0,200,255,0.2)',
+              borderRadius: '10px',
+              padding: isMobile ? '12px' : '14px',
+              width: isMobile ? '180px' : '200px',
+              zIndex: 250,
+              maxHeight: isMobile ? '60vh' : 'auto',
+              overflowY: 'auto',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ color: '#fff', fontSize: '11px', fontWeight: '500' }}>Edit Roof</span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button onClick={() => setEditorsMinimized(true)} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer', fontSize: '14px', padding: '4px' }} title="Minimize">−</button>
+                  <button onClick={() => setShowRoofPanel(false)} style={{ background: 'none', border: 'none', color: '#6080a0', cursor: 'pointer' }}>×</button>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Roof Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px' }}>
+                  {Object.entries(ROOF_TYPES).map(([key, def]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        updateActiveFloor(f => ({
+                          ...f,
+                          roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, type: key } : r)
+                        }));
+                        setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, type: key } }]);
+                      }}
+                      style={{
+                        padding: '6px 4px',
+                        background: selectedItems[0].item.type === key ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                        border: `1px solid ${selectedItems[0].item.type === key ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: '4px',
+                        color: selectedItems[0].item.type === key ? '#00c8ff' : '#8899aa',
+                        fontSize: '9px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {def.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Pitch</label>
+                <select
+                  value={selectedItems[0].item.pitch || '6:12'}
+                  onChange={(e) => {
+                    updateActiveFloor(f => ({
+                      ...f,
+                      roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, pitch: e.target.value } : r)
+                    }));
+                    setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, pitch: e.target.value } }]);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '6px',
+                    background: '#1a2028',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '4px',
+                    color: '#fff',
+                    fontSize: '10px',
+                  }}
+                >
+                  {Object.entries(ROOF_PITCHES).map(([key, def]) => (
+                    <option key={key} value={key}>{def.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Overhang (inches)</label>
+                <input
+                  type="number"
+                  value={selectedItems[0].item.overhang || 12}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 12;
+                    updateActiveFloor(f => ({
+                      ...f,
+                      roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, overhang: val } : r)
+                    }));
+                    setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, overhang: val } }]);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '6px',
+                    background: '#1a2028',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '4px',
+                    color: '#fff',
+                    fontSize: '10px',
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ color: '#6080a0', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Ridge Direction</label>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    onClick={() => {
+                      updateActiveFloor(f => ({
+                        ...f,
+                        roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, ridgeDirection: 'horizontal' } : r)
+                      }));
+                      setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, ridgeDirection: 'horizontal' } }]);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '6px',
+                      background: selectedItems[0].item.ridgeDirection === 'horizontal' ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${selectedItems[0].item.ridgeDirection === 'horizontal' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '4px',
+                      color: selectedItems[0].item.ridgeDirection === 'horizontal' ? '#00c8ff' : '#8899aa',
+                      fontSize: '9px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    E-W
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateActiveFloor(f => ({
+                        ...f,
+                        roofs: f.roofs.map(r => r.id === selectedItems[0].item.id ? { ...r, ridgeDirection: 'vertical' } : r)
+                      }));
+                      setSelectedItems([{ type: 'roof', item: { ...selectedItems[0].item, ridgeDirection: 'vertical' } }]);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '6px',
+                      background: selectedItems[0].item.ridgeDirection === 'vertical' ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${selectedItems[0].item.ridgeDirection === 'vertical' ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '4px',
+                      color: selectedItems[0].item.ridgeDirection === 'vertical' ? '#00c8ff' : '#8899aa',
+                      fontSize: '9px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    N-S
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '9px', color: '#6080a0', marginTop: '10px' }}>
+                Footprint: {formatMeasurement(pixelsToFeet(selectedItems[0].item.width))} × {formatMeasurement(pixelsToFeet(selectedItems[0].item.height))}
+              </div>
+
+              <button
+                onClick={() => {
+                  updateActiveFloor(f => ({
+                    ...f,
+                    roofs: f.roofs.filter(r => r.id !== selectedItems[0].item.id)
+                  }));
+                  setSelectedItems([]);
+                  setShowRoofPanel(false);
+                }}
+                style={{
+                  width: '100%',
+                  marginTop: '10px',
+                  padding: '8px',
+                  background: 'rgba(255,80,80,0.1)',
+                  border: '1px solid rgba(255,80,80,0.3)',
+                  borderRadius: '6px',
+                  color: '#ff8888',
+                  fontSize: '10px',
+                  cursor: 'pointer',
+                }}
+              >
+                Delete Roof
+              </button>
+            </div>
+          )}
+
+          {/* Stats - hide on mobile when menu is open */}
+          {viewMode === 'model' && !(isMobile && showMobileMenu) && (
             <div style={{
               position: isMobile ? 'fixed' : 'absolute',
               bottom: isMobile ? '70px' : '12px',
