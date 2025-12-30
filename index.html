@@ -2622,7 +2622,23 @@ function FloorPlanPro() {
     } else if (isDrawing) {
       const pos = getPointerPos(e);
       const snappedPos = { x: snap(pos.x), y: snap(pos.y) };
-      
+
+      // Auto-pan when drawing near screen edges on mobile
+      if (isMobile && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        const edgeThreshold = 60;
+        const panSpeed = 8;
+        let panX = 0;
+        let panY = 0;
+        if (clientX < rect.left + edgeThreshold) panX = panSpeed;
+        else if (clientX > rect.right - edgeThreshold) panX = -panSpeed;
+        if (clientY < rect.top + edgeThreshold) panY = panSpeed;
+        else if (clientY > rect.bottom - edgeThreshold) panY = -panSpeed;
+        if (panX !== 0 || panY !== 0) {
+          setOffset(prev => ({ x: prev.x + panX, y: prev.y + panY }));
+        }
+      }
+
       if (tool === 'wall' && drawStart) {
         // Use angle snapping for walls
         const angleSnapped = snapAngle(drawStart, snappedPos);
