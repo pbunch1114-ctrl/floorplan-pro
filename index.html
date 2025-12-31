@@ -11205,11 +11205,12 @@ function FloorPlanPro() {
               <div style={{
                 flex: 1,
                 overflow: 'hidden',
-                position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: isMobile ? '10px' : '20px',
+                padding: isMobile ? '5px' : '20px',
+                width: '100%',
+                boxSizing: 'border-box',
               }}>
                 <canvas
                   ref={elevationCanvasRef}
@@ -11218,11 +11219,10 @@ function FloorPlanPro() {
                   style={{
                     transform: isMobile ? 'none' : `scale(${elevationZoom})`,
                     transformOrigin: 'center center',
-                    width: isMobile ? '100%' : 'auto',
-                    height: isMobile ? 'auto' : 'auto',
+                    display: 'block',
                     maxWidth: '100%',
                     maxHeight: '100%',
-                    objectFit: 'contain',
+                    margin: '0 auto',
                   }}
                 />
               </div>
