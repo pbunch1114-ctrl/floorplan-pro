@@ -837,6 +837,9 @@ function FloorPlanPro() {
   
   // Paper space zoom
   const [paperZoom, setPaperZoom] = useState(0.4);
+
+  // Elevation view zoom
+  const [elevationZoom, setElevationZoom] = useState(1);
   
   // Core state
   const [tool, setTool] = useState('wall');
@@ -4588,9 +4591,47 @@ function FloorPlanPro() {
     // North/South: horizontal walls, East/West: vertical walls
     const isHorizontalElevation = activeElevation === 'north' || activeElevation === 'south';
 
-    const elevationWalls = walls.filter(wall => {
+    // First, get all walls of the correct orientation
+    const orientedWalls = walls.filter(wall => {
       if (!wall.start || !wall.end) return false;
       return isHorizontalElevation ? isHorizontalWall(wall) : !isHorizontalWall(wall);
+    });
+
+    // Find the bounds to determine which walls are on the correct side
+    let allMinY = Infinity, allMaxY = -Infinity;
+    let allMinX = Infinity, allMaxX = -Infinity;
+    orientedWalls.forEach(wall => {
+      allMinY = Math.min(allMinY, wall.start.y, wall.end.y);
+      allMaxY = Math.max(allMaxY, wall.start.y, wall.end.y);
+      allMinX = Math.min(allMinX, wall.start.x, wall.end.x);
+      allMaxX = Math.max(allMaxX, wall.start.x, wall.end.x);
+    });
+
+    // Filter to only walls on the correct side of the building
+    // Use a tolerance for "same side" detection (walls within 50 units of the edge)
+    const sideTolerance = 50;
+    const elevationWalls = orientedWalls.filter(wall => {
+      if (isHorizontalElevation) {
+        // For horizontal walls, check Y position
+        const wallY = (wall.start.y + wall.end.y) / 2;
+        if (activeElevation === 'north') {
+          // North elevation shows walls at the minimum Y (top of screen = north)
+          return wallY <= allMinY + sideTolerance;
+        } else {
+          // South elevation shows walls at the maximum Y
+          return wallY >= allMaxY - sideTolerance;
+        }
+      } else {
+        // For vertical walls, check X position
+        const wallX = (wall.start.x + wall.end.x) / 2;
+        if (activeElevation === 'west') {
+          // West elevation shows walls at the minimum X
+          return wallX <= allMinX + sideTolerance;
+        } else {
+          // East elevation shows walls at the maximum X
+          return wallX >= allMaxX - sideTolerance;
+        }
+      }
     });
 
     if (elevationWalls.length === 0) {
@@ -4621,19 +4662,46 @@ function FloorPlanPro() {
     });
 
     const elevationWidth = maxPos - minPos;
-    // Wall height in same units as the grid (GRID_SIZE = 20 = 6 inches, so 10 feet = 200 units)
-    const wallHeight = 200; // ~10 feet in grid units
+    // Wall height in grid units
+    // GRID_SIZE (20 pixels) = 6 inches, so 1 inch = 20/6 grid units
+    // 8 feet = 96 inches = 96 * (20/6) = 320 grid units
+    const wallHeightFeet = 8;
+    const wallHeight = wallHeightFeet * 12 * (GRID_SIZE / 6); // 320 grid units for 8 feet
+
+    // Calculate roof height to include in total elevation height
+    const roofs = activeFloor.roofs || [];
+    let maxRoofHeight = 0;
+    roofs.forEach(roof => {
+      const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
+      // Check if this roof is visible in current elevation
+      const roofInView = isHorizontalElevation
+        ? (roof.x < maxPos && roof.x + roof.width > minPos)
+        : (roof.y < maxPos && roof.y + roof.height > minPos);
+
+      if (roofInView) {
+        // Pitch span is ALWAYS perpendicular to ridge direction
+        // - Horizontal ridge: span = roof.height
+        // - Vertical ridge: span = roof.width
+        const roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? roof.height : roof.width;
+        const roofRise = (roofSpanForPitch / 2) * (pitchDef.rise / pitchDef.run);
+        maxRoofHeight = Math.max(maxRoofHeight, roofRise);
+      }
+    });
+
+    // Total elevation height = wall height + roof height
+    const totalElevationHeight = wallHeight + maxRoofHeight;
 
     // Scale to fit canvas with padding
-    // Use a minimum width to prevent over-scaling when elevation is narrow
     const padding = 80;
     const availableWidth = width - padding * 2;
-    const availableHeight = height - padding * 2;
-    const minElevationWidth = 100; // Minimum width to prevent extreme scaling
-    const effectiveWidth = Math.max(elevationWidth, minElevationWidth);
-    const scaleX = availableWidth / effectiveWidth;
-    const scaleY = availableHeight / wallHeight;
-    const elevScale = Math.min(scaleX, scaleY, 2); // Cap max scale at 2 (was 3)
+    const availableHeight = height - padding * 2 - 40; // Extra space for title and ground
+
+    // Calculate scale to fit both width and height
+    const scaleX = availableWidth / Math.max(elevationWidth, 100);
+    const scaleY = availableHeight / totalElevationHeight;
+
+    // Use the smaller scale to fit everything on screen
+    const elevScale = Math.min(scaleX, scaleY, 2); // Cap max scale at 2
 
     // Center offset
     const scaledWidth = elevationWidth * elevScale;
@@ -4719,8 +4787,14 @@ function FloorPlanPro() {
       // Draw doors on this wall
       const wallDoors = (activeFloor.doors || []).filter(door => door.wallId === wall.id);
       wallDoors.forEach(door => {
-        const doorWidthPx = (door.width || 36) * elevScale;
-        const doorHeightPx = 140 * elevScale; // ~7 feet door height
+        // Door width is stored in grid units (already multiplied by GRID_SIZE/6)
+        // Default 36" door = 36 * (GRID_SIZE/6) = 120 grid units
+        // Door height is 7ft = 84" = 84 * (GRID_SIZE/6) = 280 grid units
+        const defaultDoorWidth = 36 * (GRID_SIZE / 6);
+        const doorHeightGrid = 84 * (GRID_SIZE / 6); // 7 feet
+
+        const doorWidthPx = (door.width || defaultDoorWidth) * elevScale;
+        const doorHeightPx = doorHeightGrid * elevScale;
         const doorPosRatio = door.position || 0.5;
         const doorX = wallX + doorPosRatio * wallW - doorWidthPx / 2;
         const doorY = offsetY - doorHeightPx;
@@ -4763,9 +4837,15 @@ function FloorPlanPro() {
       // Draw windows on this wall
       const wallWindows = (activeFloor.windows || []).filter(win => win.wallId === wall.id);
       wallWindows.forEach(win => {
-        const winWidthPx = (win.width || 48) * elevScale;
-        const winHeightPx = (win.height || 48) * elevScale;
-        const sillHeightPx = (win.sillHeight || 36) * elevScale;
+        // Window dimensions are stored in grid units (already multiplied by GRID_SIZE/6)
+        // Default 48" window = 48 * (GRID_SIZE/6) = 160 grid units
+        const defaultWinSize = 48 * (GRID_SIZE / 6);
+        const defaultSillHeight = 36 * (GRID_SIZE / 6);
+
+        const winWidthPx = (win.width || defaultWinSize) * elevScale;
+        const winHeightPx = (win.height || defaultWinSize) * elevScale;
+        const sillHeightPx = (win.sillHeight || defaultSillHeight) * elevScale;
+
         const winPosRatio = win.position || 0.5;
         const winX = wallX + winPosRatio * wallW - winWidthPx / 2;
         const winY = offsetY - sillHeightPx - winHeightPx;
@@ -4824,8 +4904,7 @@ function FloorPlanPro() {
       });
     });
 
-    // Draw roofs in elevation
-    const roofs = activeFloor.roofs || [];
+    // Draw roofs in elevation (roofs already defined above for height calc)
     roofs.forEach(roof => {
       const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
 
@@ -4840,19 +4919,20 @@ function FloorPlanPro() {
       // For elevation view width:
       // - North/South view: use roof's X width
       // - East/West view: use roof's Y height
-      let roofViewWidth, roofSpanForPitch, roofStartPos;
+      let roofViewWidth, roofStartPos;
 
       if (isHorizontalElevation) {
         roofViewWidth = roof.width;
         roofStartPos = roof.x;
-        // Span for pitch calculation depends on ridge direction
-        roofSpanForPitch = roof.ridgeDirection === 'vertical' ? roof.width : roof.height;
       } else {
         roofViewWidth = roof.height;
         roofStartPos = roof.y;
-        // Span for pitch calculation depends on ridge direction
-        roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? roof.height : roof.width;
       }
+
+      // Pitch span is ALWAYS perpendicular to ridge direction (this determines roof height)
+      // - Horizontal ridge (east-west): span = roof.height (north-south dimension)
+      // - Vertical ridge (north-south): span = roof.width (east-west dimension)
+      const roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? roof.height : roof.width;
 
       const roofRise = (roofSpanForPitch / 2) * (pitchDef.rise / pitchDef.run);
 
@@ -4884,12 +4964,49 @@ function FloorPlanPro() {
             ctx.stroke();
           }
         } else {
-          // Eave side - just show roof edge/fascia
+          // Eave side - show sloped roof profile
+          // When viewing from eave side, you see the roof slope from the side
+          // The roof extends from eave (at wall top) up to ridge at pitch angle
+          const overhang = 15 * elevScale; // Roof overhang past wall
+          const fascia = 6 * elevScale; // Fascia board thickness
+
+          // roofH is already the rise based on the span perpendicular to ridge
+          // This is the correct height for the eave-side profile
+
           if (isSketchyMode) {
-            drawSketchyRect(roofX, roofY - 8, roofW, 8);
+            // Draw the roof profile - a sloped shape sitting on the wall
+            // Left eave overhang
+            drawSketchyLine(roofX - overhang, roofY, roofX, roofY); // Eave soffit left
+            drawSketchyLine(roofX - overhang, roofY, roofX - overhang, roofY - fascia); // Left fascia
+            drawSketchyLine(roofX - overhang, roofY - fascia, roofX, roofY - roofH); // Left slope up
+            // Ridge
+            drawSketchyLine(roofX, roofY - roofH, roofX + roofW, roofY - roofH); // Ridge line
+            // Right slope down
+            drawSketchyLine(roofX + roofW, roofY - roofH, roofX + roofW + overhang, roofY - fascia); // Right slope
+            drawSketchyLine(roofX + roofW + overhang, roofY - fascia, roofX + roofW + overhang, roofY); // Right fascia
+            drawSketchyLine(roofX + roofW + overhang, roofY, roofX + roofW, roofY); // Eave soffit right
           } else {
-            if (isColorMode) ctx.fillRect(roofX, roofY - 8, roofW, 8);
-            ctx.strokeRect(roofX, roofY - 8, roofW, 8);
+            // Draw the sloped roof profile as a filled shape
+            ctx.beginPath();
+            ctx.moveTo(roofX - overhang, roofY); // Bottom left (eave)
+            ctx.lineTo(roofX - overhang, roofY - fascia); // Up fascia
+            ctx.lineTo(roofX, roofY - roofH); // Slope up to ridge (left)
+            ctx.lineTo(roofX + roofW, roofY - roofH); // Along ridge
+            ctx.lineTo(roofX + roofW + overhang, roofY - fascia); // Slope down (right)
+            ctx.lineTo(roofX + roofW + overhang, roofY); // Down fascia
+            ctx.closePath();
+            if (isColorMode) ctx.fill();
+            ctx.stroke();
+
+            // Draw the ridge line more prominently
+            ctx.beginPath();
+            ctx.moveTo(roofX, roofY - roofH);
+            ctx.lineTo(roofX + roofW, roofY - roofH);
+            ctx.strokeStyle = isColorMode ? '#3D2817' : '#000000';
+            ctx.lineWidth = isColorMode ? 2 : 1.5;
+            ctx.stroke();
+            ctx.strokeStyle = isColorMode ? '#5D3A1A' : '#000000';
+            ctx.lineWidth = isSketchyMode ? 1.5 : 2;
           }
         }
       } else if (roof.type === 'hip') {
@@ -10771,70 +10888,114 @@ function FloorPlanPro() {
               <div style={{
                 background: 'rgba(8,12,16,0.98)',
                 borderBottom: '1px solid rgba(0,200,255,0.2)',
-                padding: '8px 16px',
+                padding: isMobile ? '8px 10px' : '8px 16px',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : 'center',
+                gap: isMobile ? '8px' : '12px',
                 flexShrink: 0,
               }}>
-                <button
-                  onClick={() => setViewMode('model')}
-                  style={{
-                    padding: '6px 12px',
-                    background: 'rgba(0,200,255,0.1)',
-                    border: '1px solid rgba(0,200,255,0.3)',
-                    borderRadius: '4px',
-                    color: '#00c8ff',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  ← Back to Model Space
-                </button>
-                
-                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
-                  📄 {activeSheet.sheetNumber} - {activeSheet.sheetTitle}
-                </span>
-                
-                <span style={{ color: '#6080a0', fontSize: '10px' }}>
-                  {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size} | Scale: {activeSheet.scale}
-                </span>
-                
-                <div style={{ flex: 1 }} />
-                
-                {/* Zoom controls */}
+                {/* Top row on mobile */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
-                    onClick={() => setPaperZoom(z => Math.max(0.1, z - 0.1))}
-                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
-                  >−</button>
-                  <span style={{ color: '#fff', fontSize: '11px', minWidth: '50px', textAlign: 'center' }}>
-                    {Math.round(paperZoom * 100)}%
-                  </span>
+                    onClick={() => setViewMode('model')}
+                    style={{
+                      padding: isMobile ? '8px 10px' : '6px 12px',
+                      background: 'rgba(0,200,255,0.1)',
+                      border: '1px solid rgba(0,200,255,0.3)',
+                      borderRadius: '4px',
+                      color: '#00c8ff',
+                      fontSize: isMobile ? '12px' : '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ← {isMobile ? 'Back' : 'Back to Model Space'}
+                  </button>
+
+                  {!isMobile && (
+                    <>
+                      <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                        📄 {activeSheet.sheetNumber} - {activeSheet.sheetTitle}
+                      </span>
+
+                      <span style={{ color: '#6080a0', fontSize: '10px' }}>
+                        {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size} | Scale: {activeSheet.scale}
+                      </span>
+                    </>
+                  )}
+
+                  <div style={{ flex: 1 }} />
+
+                  {/* Zoom controls */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      onClick={() => setPaperZoom(z => Math.max(0.1, z - 0.1))}
+                      style={{
+                        padding: isMobile ? '8px 12px' : '4px 8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '4px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: isMobile ? '16px' : '12px',
+                      }}
+                    >−</button>
+                    <span style={{ color: '#fff', fontSize: isMobile ? '12px' : '11px', minWidth: '50px', textAlign: 'center' }}>
+                      {Math.round(paperZoom * 100)}%
+                    </span>
+                    <button
+                      onClick={() => setPaperZoom(z => Math.min(2, z + 0.1))}
+                      style={{
+                        padding: isMobile ? '8px 12px' : '4px 8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '4px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: isMobile ? '16px' : '12px',
+                      }}
+                    >+</button>
+                    <button
+                      onClick={() => setPaperZoom(0.4)}
+                      style={{
+                        padding: isMobile ? '8px 10px' : '4px 8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '4px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: isMobile ? '11px' : '10px',
+                      }}
+                    >Fit</button>
+                  </div>
+
                   <button
-                    onClick={() => setPaperZoom(z => Math.min(2, z + 0.1))}
-                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}
-                  >+</button>
-                  <button
-                    onClick={() => setPaperZoom(0.4)}
-                    style={{ padding: '4px 8px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', color: '#fff', cursor: 'pointer', fontSize: '10px' }}
-                  >Fit</button>
+                    onClick={() => window.print()}
+                    style={{
+                      padding: isMobile ? '8px 12px' : '6px 12px',
+                      background: 'rgba(0,200,255,0.2)',
+                      border: '1px solid rgba(0,200,255,0.4)',
+                      borderRadius: '4px',
+                      color: '#00c8ff',
+                      fontSize: isMobile ? '12px' : '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🖨️ {isMobile ? '' : 'Print'}
+                  </button>
                 </div>
-                
-                <button
-                  onClick={() => window.print()}
-                  style={{
-                    padding: '6px 12px',
-                    background: 'rgba(0,200,255,0.2)',
-                    border: '1px solid rgba(0,200,255,0.4)',
-                    borderRadius: '4px',
-                    color: '#00c8ff',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  🖨️ Print
-                </button>
+
+                {/* Mobile-only: sheet info row */}
+                {isMobile && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                    <span style={{ color: '#fff', fontSize: '11px', fontWeight: '500' }}>
+                      📄 {activeSheet.sheetNumber}
+                    </span>
+                    <span style={{ color: '#6080a0', fontSize: '10px' }}>
+                      {PAPER_SIZES[activeSheet.size]?.name || activeSheet.size}
+                    </span>
+                  </div>
+                )}
               </div>
               
               {/* Paper Preview Area - Scrollable */}
@@ -10901,101 +11062,155 @@ function FloorPlanPro() {
               <div style={{
                 background: 'rgba(8,12,16,0.98)',
                 borderBottom: '1px solid rgba(0,200,255,0.2)',
-                padding: '8px 16px',
+                padding: isMobile ? '8px 10px' : '8px 16px',
                 display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : 'center',
+                gap: isMobile ? '8px' : '12px',
                 flexShrink: 0,
               }}>
-                <button
-                  onClick={() => setViewMode('model')}
-                  style={{
-                    padding: '6px 12px',
-                    background: 'rgba(0,200,255,0.1)',
-                    border: '1px solid rgba(0,200,255,0.3)',
-                    borderRadius: '4px',
-                    color: '#00c8ff',
-                    fontSize: '11px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  ← Back to Model Space
-                </button>
+                {/* Top row on mobile: back button and title */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <button
+                    onClick={() => setViewMode('model')}
+                    style={{
+                      padding: isMobile ? '8px 10px' : '6px 12px',
+                      background: 'rgba(0,200,255,0.1)',
+                      border: '1px solid rgba(0,200,255,0.3)',
+                      borderRadius: '4px',
+                      color: '#00c8ff',
+                      fontSize: isMobile ? '12px' : '11px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ← {isMobile ? 'Back' : 'Back to Model Space'}
+                  </button>
 
-                <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
-                  🏠 Elevation Views
-                </span>
+                  {!isMobile && (
+                    <span style={{ color: '#fff', fontSize: '12px', fontWeight: '500' }}>
+                      🏠 Elevation Views
+                    </span>
+                  )}
 
-                <div style={{ flex: 1 }} />
+                  <div style={{ flex: 1 }} />
 
-                {/* Elevation Direction Controls */}
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  {['north', 'south', 'east', 'west'].map(dir => (
+                  {/* Zoom controls - always visible */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <button
-                      key={dir}
-                      onClick={() => setActiveElevation(dir)}
+                      onClick={() => setElevationZoom(z => Math.max(0.25, z - 0.25))}
                       style={{
-                        padding: '6px 12px',
-                        background: activeElevation === dir ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                        border: `1px solid ${activeElevation === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                        padding: isMobile ? '8px 12px' : '4px 8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
                         borderRadius: '4px',
-                        color: activeElevation === dir ? '#00c8ff' : '#6080a0',
-                        fontSize: '10px',
+                        color: '#fff',
                         cursor: 'pointer',
-                        fontWeight: activeElevation === dir ? '600' : '400',
-                        textTransform: 'capitalize',
+                        fontSize: isMobile ? '16px' : '12px',
                       }}
-                    >
-                      {dir}
-                    </button>
-                  ))}
+                    >−</button>
+                    <span style={{ color: '#fff', fontSize: isMobile ? '12px' : '11px', minWidth: '50px', textAlign: 'center' }}>
+                      {Math.round(elevationZoom * 100)}%
+                    </span>
+                    <button
+                      onClick={() => setElevationZoom(z => Math.min(3, z + 0.25))}
+                      style={{
+                        padding: isMobile ? '8px 12px' : '4px 8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '4px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: isMobile ? '16px' : '12px',
+                      }}
+                    >+</button>
+                    <button
+                      onClick={() => setElevationZoom(1)}
+                      style={{
+                        padding: isMobile ? '8px 10px' : '4px 8px',
+                        background: 'rgba(255,255,255,0.1)',
+                        border: '1px solid rgba(255,255,255,0.2)',
+                        borderRadius: '4px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontSize: isMobile ? '11px' : '10px',
+                      }}
+                    >Fit</button>
+                  </div>
                 </div>
 
-                {/* Render Mode Controls */}
-                <div style={{ display: 'flex', gap: '4px', marginLeft: '12px', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '12px' }}>
-                  <span style={{ color: '#6080a0', fontSize: '10px', marginRight: '4px', alignSelf: 'center' }}>Style:</span>
-                  {[
-                    { id: 'color', label: 'Color', icon: '🎨' },
-                    { id: 'line', label: 'Line', icon: '✏️' },
-                    { id: 'sketchy', label: 'Sketchy', icon: '✍️' },
-                  ].map(mode => (
-                    <button
-                      key={mode.id}
-                      onClick={() => setElevationRenderMode(mode.id)}
-                      style={{
-                        padding: '6px 10px',
-                        background: elevationRenderMode === mode.id ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
-                        border: `1px solid ${elevationRenderMode === mode.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                        borderRadius: '4px',
-                        color: elevationRenderMode === mode.id ? '#00c8ff' : '#6080a0',
-                        fontSize: '10px',
-                        cursor: 'pointer',
-                        fontWeight: elevationRenderMode === mode.id ? '600' : '400',
-                      }}
-                    >
-                      {mode.icon} {mode.label}
-                    </button>
-                  ))}
+                {/* Bottom row: direction and style controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '12px', flexWrap: 'wrap' }}>
+                  {/* Elevation Direction Controls */}
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {['north', 'south', 'east', 'west'].map(dir => (
+                      <button
+                        key={dir}
+                        onClick={() => setActiveElevation(dir)}
+                        style={{
+                          padding: isMobile ? '10px 14px' : '6px 12px',
+                          background: activeElevation === dir ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                          border: `1px solid ${activeElevation === dir ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: '4px',
+                          color: activeElevation === dir ? '#00c8ff' : '#6080a0',
+                          fontSize: isMobile ? '12px' : '10px',
+                          cursor: 'pointer',
+                          fontWeight: activeElevation === dir ? '600' : '400',
+                          textTransform: 'capitalize',
+                        }}
+                      >
+                        {isMobile ? dir.charAt(0).toUpperCase() : dir}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Render Mode Controls */}
+                  <div style={{ display: 'flex', gap: '4px', marginLeft: isMobile ? '0' : '12px', borderLeft: isMobile ? 'none' : '1px solid rgba(255,255,255,0.1)', paddingLeft: isMobile ? '0' : '12px' }}>
+                    {!isMobile && <span style={{ color: '#6080a0', fontSize: '10px', marginRight: '4px', alignSelf: 'center' }}>Style:</span>}
+                    {[
+                      { id: 'color', label: 'Color', icon: '🎨' },
+                      { id: 'line', label: 'Line', icon: '✏️' },
+                      { id: 'sketchy', label: 'Sketch', icon: '✍️' },
+                    ].map(mode => (
+                      <button
+                        key={mode.id}
+                        onClick={() => setElevationRenderMode(mode.id)}
+                        style={{
+                          padding: isMobile ? '10px 12px' : '6px 10px',
+                          background: elevationRenderMode === mode.id ? 'rgba(0,200,255,0.2)' : 'rgba(255,255,255,0.05)',
+                          border: `1px solid ${elevationRenderMode === mode.id ? 'rgba(0,200,255,0.4)' : 'rgba(255,255,255,0.1)'}`,
+                          borderRadius: '4px',
+                          color: elevationRenderMode === mode.id ? '#00c8ff' : '#6080a0',
+                          fontSize: isMobile ? '11px' : '10px',
+                          cursor: 'pointer',
+                          fontWeight: elevationRenderMode === mode.id ? '600' : '400',
+                        }}
+                      >
+                        {mode.icon}{isMobile ? '' : ` ${mode.label}`}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
               {/* Elevation Canvas */}
               <div style={{
                 flex: 1,
-                overflow: 'hidden',
+                overflow: 'auto',
                 position: 'relative',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                padding: '20px',
               }}>
                 <canvas
                   ref={elevationCanvasRef}
                   width={1200}
                   height={800}
                   style={{
-                    maxWidth: '100%',
-                    maxHeight: '100%',
-                    objectFit: 'contain',
+                    transform: `scale(${elevationZoom})`,
+                    transformOrigin: 'center center',
+                    maxWidth: elevationZoom <= 1 ? '100%' : 'none',
+                    maxHeight: elevationZoom <= 1 ? '100%' : 'none',
                   }}
                 />
               </div>
@@ -11397,8 +11612,8 @@ function FloorPlanPro() {
             </div>
           )}
           
-          {/* Stats */}
-          {viewMode === 'model' && (
+          {/* Stats - hide when mobile menu is open */}
+          {viewMode === 'model' && !(isMobile && showMobileMenu) && (
             <div style={{
               position: isMobile ? 'fixed' : 'absolute',
               bottom: isMobile ? '70px' : '12px',
