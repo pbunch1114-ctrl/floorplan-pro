@@ -11217,8 +11217,8 @@ function FloorPlanPro() {
               }}>
                 <canvas
                   ref={elevationCanvasRef}
-                  width={800}
-                  height={600}
+                  width={isMobile ? 360 : 800}
+                  height={isMobile ? 480 : 600}
                   style={{
                     transform: isMobile ? 'none' : `scale(${elevationZoom})`,
                     transformOrigin: 'center center',
@@ -11226,6 +11226,7 @@ function FloorPlanPro() {
                     maxWidth: '100%',
                     maxHeight: '100%',
                     margin: '0 auto',
+                    background: '#f5f5f5',
                   }}
                 />
               </div>
