@@ -979,13 +979,18 @@ function FloorPlanPro() {
   useEffect(() => {
     const checkDevice = () => {
       const width = window.innerWidth;
+      const wasMobile = isMobile;
       setIsMobile(width < 768);
       setIsTablet(width >= 768 && width < 1024);
+      // Set default elevation zoom for mobile on first detection
+      if (width < 768 && !wasMobile) {
+        setElevationZoom(0.5);
+      }
     };
     checkDevice();
     window.addEventListener('resize', checkDevice);
     return () => window.removeEventListener('resize', checkDevice);
-  }, []);
+  }, [isMobile]);
   
   // Reset minimized state when selection is cleared
   useEffect(() => {
@@ -4662,11 +4667,13 @@ function FloorPlanPro() {
     });
 
     const elevationWidth = maxPos - minPos;
-    // Wall height in grid units
-    // GRID_SIZE (20 pixels) = 6 inches, so 1 inch = 20/6 grid units
-    // 8 feet = 96 inches = 96 * (20/6) = 320 grid units
-    const wallHeightFeet = 8;
-    const wallHeight = wallHeightFeet * 12 * (GRID_SIZE / 6); // 320 grid units for 8 feet
+
+    // Get wall height from the walls (use max height if walls have different heights)
+    // Wall height is stored in inches, default is DEFAULT_WALL_HEIGHT (96" = 8')
+    const maxWallHeightInches = Math.max(...elevationWalls.map(w => w.height || DEFAULT_WALL_HEIGHT));
+    const wallHeightFeet = maxWallHeightInches / 12;
+    // Convert to grid units: GRID_SIZE (20 pixels) = 6 inches
+    const wallHeight = maxWallHeightInches * (GRID_SIZE / 6);
 
     // Calculate roof height to include in total elevation height
     const roofs = activeFloor.roofs || [];
@@ -11124,7 +11131,7 @@ function FloorPlanPro() {
                       }}
                     >+</button>
                     <button
-                      onClick={() => setElevationZoom(1)}
+                      onClick={() => setElevationZoom(isMobile ? 0.5 : 1)}
                       style={{
                         padding: isMobile ? '8px 10px' : '4px 8px',
                         background: 'rgba(255,255,255,0.1)',
@@ -11204,13 +11211,14 @@ function FloorPlanPro() {
               }}>
                 <canvas
                   ref={elevationCanvasRef}
-                  width={1200}
-                  height={800}
+                  width={isMobile ? 600 : 1200}
+                  height={isMobile ? 400 : 800}
                   style={{
                     transform: `scale(${elevationZoom})`,
                     transformOrigin: 'center center',
-                    maxWidth: elevationZoom <= 1 ? '100%' : 'none',
-                    maxHeight: elevationZoom <= 1 ? '100%' : 'none',
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain',
                   }}
                 />
               </div>
