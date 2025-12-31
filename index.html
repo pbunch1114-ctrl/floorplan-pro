@@ -11101,48 +11101,50 @@ function FloorPlanPro() {
 
                   <div style={{ flex: 1 }} />
 
-                  {/* Zoom controls - always visible */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <button
-                      onClick={() => setElevationZoom(z => Math.max(0.25, z - 0.25))}
-                      style={{
-                        padding: isMobile ? '8px 12px' : '4px 8px',
-                        background: 'rgba(255,255,255,0.1)',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        borderRadius: '4px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: isMobile ? '16px' : '12px',
-                      }}
-                    >−</button>
-                    <span style={{ color: '#fff', fontSize: isMobile ? '12px' : '11px', minWidth: '50px', textAlign: 'center' }}>
-                      {Math.round(elevationZoom * 100)}%
-                    </span>
-                    <button
-                      onClick={() => setElevationZoom(z => Math.min(3, z + 0.25))}
-                      style={{
-                        padding: isMobile ? '8px 12px' : '4px 8px',
-                        background: 'rgba(255,255,255,0.1)',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        borderRadius: '4px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: isMobile ? '16px' : '12px',
-                      }}
-                    >+</button>
-                    <button
-                      onClick={() => setElevationZoom(isMobile ? 0.5 : 1)}
-                      style={{
-                        padding: isMobile ? '8px 10px' : '4px 8px',
-                        background: 'rgba(255,255,255,0.1)',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                        borderRadius: '4px',
-                        color: '#fff',
-                        cursor: 'pointer',
-                        fontSize: isMobile ? '11px' : '10px',
-                      }}
-                    >Fit</button>
-                  </div>
+                  {/* Zoom controls - desktop only, mobile uses auto-fit canvas */}
+                  {!isMobile && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        onClick={() => setElevationZoom(z => Math.max(0.25, z - 0.25))}
+                        style={{
+                          padding: '4px 8px',
+                          background: 'rgba(255,255,255,0.1)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                        }}
+                      >−</button>
+                      <span style={{ color: '#fff', fontSize: '11px', minWidth: '50px', textAlign: 'center' }}>
+                        {Math.round(elevationZoom * 100)}%
+                      </span>
+                      <button
+                        onClick={() => setElevationZoom(z => Math.min(3, z + 0.25))}
+                        style={{
+                          padding: '4px 8px',
+                          background: 'rgba(255,255,255,0.1)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                        }}
+                      >+</button>
+                      <button
+                        onClick={() => setElevationZoom(1)}
+                        style={{
+                          padding: '4px 8px',
+                          background: 'rgba(255,255,255,0.1)',
+                          border: '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          color: '#fff',
+                          cursor: 'pointer',
+                          fontSize: '10px',
+                        }}
+                      >Fit</button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Bottom row: direction and style controls */}
@@ -11211,14 +11213,13 @@ function FloorPlanPro() {
               }}>
                 <canvas
                   ref={elevationCanvasRef}
-                  width={isMobile ? 600 : 1200}
-                  height={isMobile ? 400 : 800}
+                  width={isMobile ? window.innerWidth - 40 : 1200}
+                  height={isMobile ? Math.min(400, window.innerHeight - 200) : 800}
                   style={{
-                    transform: `scale(${elevationZoom})`,
+                    transform: isMobile ? 'none' : `scale(${elevationZoom})`,
                     transformOrigin: 'center center',
                     maxWidth: '100%',
                     maxHeight: '100%',
-                    objectFit: 'contain',
                   }}
                 />
               </div>
