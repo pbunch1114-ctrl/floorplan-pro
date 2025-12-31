@@ -11207,23 +11207,23 @@ function FloorPlanPro() {
               {/* Elevation Canvas */}
               <div style={{
                 flex: 1,
-                overflow: 'hidden',
-                padding: isMobile ? '5px' : '20px',
+                overflow: 'auto',
+                padding: isMobile ? '10px' : '20px',
                 boxSizing: 'border-box',
-                textAlign: 'center',
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'center',
               }}>
                 <canvas
                   key={isMobile ? 'mobile-canvas' : 'desktop-canvas'}
                   ref={elevationCanvasRef}
-                  width={isMobile ? 320 : 800}
-                  height={isMobile ? 400 : 600}
+                  width={isMobile ? 340 : 800}
+                  height={isMobile ? 260 : 600}
                   style={{
                     transform: isMobile ? 'none' : `scale(${elevationZoom})`,
-                    transformOrigin: isMobile ? 'top left' : 'center center',
-                    display: isMobile ? 'block' : 'inline-block',
-                    width: isMobile ? '100%' : 'auto',
-                    height: 'auto',
+                    transformOrigin: 'center center',
                     background: '#f5f5f5',
+                    flexShrink: 0,
                   }}
                 />
               </div>
