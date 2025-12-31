@@ -4698,10 +4698,12 @@ function FloorPlanPro() {
     // Total elevation height = wall height + roof height
     const totalElevationHeight = wallHeight + maxRoofHeight;
 
-    // Scale to fit canvas with padding
-    const padding = 80;
+    // Scale to fit canvas with padding (responsive based on canvas size)
+    const padding = Math.min(40, width * 0.05); // 5% of width, max 40px
+    const titleSpace = 35;
+    const groundSpace = 25;
     const availableWidth = width - padding * 2;
-    const availableHeight = height - padding * 2 - 40; // Extra space for title and ground
+    const availableHeight = height - titleSpace - groundSpace - padding;
 
     // Calculate scale to fit both width and height
     const scaleX = availableWidth / Math.max(elevationWidth, 100);
@@ -4714,13 +4716,14 @@ function FloorPlanPro() {
     const scaledWidth = elevationWidth * elevScale;
     const scaledHeight = wallHeight * elevScale;
     const offsetX = (width - scaledWidth) / 2;
-    const offsetY = height - padding - 20; // Ground line position
+    const offsetY = height - groundSpace - padding; // Ground line position
 
-    // Draw title
+    // Draw title (responsive font size)
     ctx.fillStyle = '#333';
-    ctx.font = 'bold 24px Arial';
+    const titleFontSize = Math.min(24, width / 30);
+    ctx.font = `bold ${titleFontSize}px Arial`;
     ctx.textAlign = 'center';
-    ctx.fillText(`${activeElevation.toUpperCase()} ELEVATION`, width / 2, 35);
+    ctx.fillText(`${activeElevation.toUpperCase()} ELEVATION`, width / 2, titleFontSize + 8);
 
     // Draw ground line
     ctx.strokeStyle = isColorMode ? '#654321' : '#000000';
