@@ -5086,7 +5086,7 @@ function FloorPlanPro() {
     ctx.textAlign = 'left';
     ctx.fillText(`Scale: 1 grid = 6"`, 10, height - 10);
 
-  }, [viewMode, activeElevation, activeFloor, elevationRenderMode]);
+  }, [viewMode, activeElevation, activeFloor, elevationRenderMode, isMobile]);
 
   // Reset drawing states when tool changes
   const prevToolRef = useRef(tool);
@@ -11216,13 +11216,16 @@ function FloorPlanPro() {
                 boxSizing: 'border-box',
               }}>
                 <canvas
+                  key={isMobile ? 'mobile-canvas' : 'desktop-canvas'}
                   ref={elevationCanvasRef}
-                  width={isMobile ? 360 : 800}
-                  height={isMobile ? 480 : 600}
+                  width={isMobile ? 350 : 800}
+                  height={isMobile ? 450 : 600}
                   style={{
                     transform: isMobile ? 'none' : `scale(${elevationZoom})`,
                     transformOrigin: 'center center',
                     display: 'block',
+                    width: isMobile ? '100%' : 'auto',
+                    height: isMobile ? 'auto' : 'auto',
                     maxWidth: '100%',
                     maxHeight: '100%',
                     margin: '0 auto',
