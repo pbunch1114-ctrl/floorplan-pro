@@ -2,12 +2,62 @@
 
 A cross-platform floor plan editor for desktop and iPad.
 
+## Project Structure
+
+This project has two versions:
+
+1. **Standalone** (`index.html`) - Single file with Babel in-browser compilation
+2. **Vite/React** (`src/`) - Modular structure with build tooling
+
+```
+floorplan-pro/
+├── index.html              # Original standalone version
+├── index.vite.html         # Vite entry point
+├── package.json            # Dependencies and scripts
+├── vite.config.js          # Vite configuration
+├── capacitor.config.json   # Capacitor mobile config
+├── src/
+│   ├── main.jsx            # React entry point
+│   ├── App.jsx             # Main application component
+│   ├── constants/          # Configuration constants
+│   ├── utils/              # Utility functions
+│   ├── hooks/              # Custom React hooks (with undo/redo)
+│   ├── components/         # React components
+│   └── styles/             # CSS styles
+```
+
 ## Local Development
 
+### Standalone Version
 Just open `index.html` in your browser, or use VS Code's Live Server extension:
 
 1. Install "Live Server" extension in VS Code
 2. Right-click `index.html` → "Open with Live Server"
+
+### Vite Version
+```bash
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+```
+
+## Mobile App (Capacitor)
+
+```bash
+# Initialize and add platforms
+npm run cap:init
+npm run cap:add:android
+npm run cap:add:ios
+
+# Build and sync
+npm run build:mobile
+
+# Open in native IDE
+npx cap open android
+npx cap open ios
+```
 
 ## Deploy to Your Droplet
 

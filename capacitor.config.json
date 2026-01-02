@@ -1,0 +1,20 @@
+{
+  "appId": "com.floorplanpro.app",
+  "appName": "FloorPlan Pro",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#080c10",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "dark",
+      "backgroundColor": "#080c10"
+    }
+  }
+}
