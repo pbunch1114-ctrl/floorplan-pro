@@ -350,27 +350,35 @@ export const useFloorPlan = () => {
     setSelectedItems(newSelectedItems);
   }, [clipboard, addItem]);
 
-  // Delete selected items
-  const deleteSelected = useCallback(() => {
-    if (selectedItems.length === 0) return;
+  // Delete selected items - requires items to be passed to avoid stale closure
+  const deleteSelected = useCallback((itemsToDelete) => {
+    if (!itemsToDelete || itemsToDelete.length === 0) return;
 
-    selectedItems.forEach(sel => {
-      const type = sel.type === 'wall' ? 'walls' :
-                   sel.type === 'door' ? 'doors' :
-                   sel.type === 'window' ? 'windows' :
-                   sel.type === 'furniture' ? 'furniture' :
-                   sel.type === 'room' ? 'rooms' :
-                   sel.type === 'roof' ? 'roofs' : sel.type;
+    itemsToDelete.forEach(sel => {
+      const typeMap = {
+        wall: 'walls',
+        door: 'doors',
+        window: 'windows',
+        furniture: 'furniture',
+        room: 'rooms',
+        roof: 'roofs',
+        dimension: 'dimensions',
+        line: 'lines',
+        text: 'texts',
+      };
+      const type = typeMap[sel.type] || sel.type;
+      // Get the item id - selection objects store the id inside sel.item.id
+      const itemId = sel.item?.id || sel.id;
 
       if (sel.type === 'wall') {
-        removeWall(sel.id);
+        removeWall(itemId);
       } else {
-        removeItem(type, sel.id);
+        removeItem(type, itemId);
       }
     });
 
     setSelectedItems([]);
-  }, [selectedItems, removeWall, removeItem]);
+  }, [removeWall, removeItem, setSelectedItems]);
 
   // Clear floor
   const clearFloor = useCallback(() => {

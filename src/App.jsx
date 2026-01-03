@@ -5,7 +5,7 @@ import { useLayers } from './hooks/useLayers';
 import { useCanvasInteraction } from './hooks/useCanvasInteraction';
 import { Toolbar, MobileToolbar } from './components/toolbar';
 import { FurnitureLibrary, StairsLibrary, ElectricalLibrary, PlumbingLibrary, LayersPanel, SheetsPanel, SettingsPanel } from './components/sidebar';
-import { WallEditor, RoofEditor, DoorEditor, WindowEditor, FurnitureEditor, TempDimensionEditor } from './components/editors';
+import { WallEditor, RoofEditor, DoorEditor, WindowEditor, FurnitureEditor, TextEditor, TempDimensionEditor, WallTempDimensionEditor } from './components/editors';
 import { Button } from './components/ui';
 import { FloorPlanCanvas } from './components/canvas';
 import { ElevationView, ThreeDView, PaperSpaceView } from './components/views';
@@ -266,33 +266,42 @@ function App() {
     });
   }, [activeFloor, zoomToFit, resetView]);
 
-  // Handle delete selected
-  const deleteSelected = useCallback(() => {
-    if (!selectedItems.length) return;
+  // Handle delete selected - accepts items to avoid stale closure
+  const deleteSelected = useCallback((itemsToDelete) => {
+    if (!itemsToDelete || !itemsToDelete.length) return;
 
-    selectedItems.forEach(({ type, item }) => {
+    itemsToDelete.forEach(({ type, item, id }) => {
+      // Get the item id - may be in item.id or directly in id
+      const itemId = item?.id || id;
+
       if (type === 'wall') {
         updateActiveFloor(f => ({
           ...f,
-          walls: f.walls.filter(w => w.id !== item.id),
-          doors: f.doors.filter(d => d.wallId !== item.id),
-          windows: f.windows.filter(w => w.wallId !== item.id),
+          walls: f.walls.filter(w => w.id !== itemId),
+          doors: f.doors.filter(d => d.wallId !== itemId),
+          windows: f.windows.filter(w => w.wallId !== itemId),
         }));
       } else if (type === 'door') {
-        updateActiveFloor(f => ({ ...f, doors: f.doors.filter(d => d.id !== item.id) }));
+        updateActiveFloor(f => ({ ...f, doors: f.doors.filter(d => d.id !== itemId) }));
       } else if (type === 'window') {
-        updateActiveFloor(f => ({ ...f, windows: f.windows.filter(w => w.id !== item.id) }));
+        updateActiveFloor(f => ({ ...f, windows: f.windows.filter(w => w.id !== itemId) }));
       } else if (type === 'furniture') {
-        updateActiveFloor(f => ({ ...f, furniture: f.furniture.filter(furn => furn.id !== item.id) }));
+        updateActiveFloor(f => ({ ...f, furniture: f.furniture.filter(furn => furn.id !== itemId) }));
       } else if (type === 'room') {
-        updateActiveFloor(f => ({ ...f, rooms: (f.rooms || []).filter(r => r.id !== item.id) }));
+        updateActiveFloor(f => ({ ...f, rooms: (f.rooms || []).filter(r => r.id !== itemId) }));
       } else if (type === 'roof') {
-        updateActiveFloor(f => ({ ...f, roofs: (f.roofs || []).filter(r => r.id !== item.id) }));
+        updateActiveFloor(f => ({ ...f, roofs: (f.roofs || []).filter(r => r.id !== itemId) }));
+      } else if (type === 'dimension') {
+        updateActiveFloor(f => ({ ...f, dimensions: (f.dimensions || []).filter(d => d.id !== itemId) }));
+      } else if (type === 'line') {
+        updateActiveFloor(f => ({ ...f, lines: (f.lines || []).filter(l => l.id !== itemId) }));
+      } else if (type === 'text') {
+        updateActiveFloor(f => ({ ...f, texts: (f.texts || []).filter(t => t.id !== itemId) }));
       }
     });
 
     setSelectedItems([]);
-  }, [selectedItems, updateActiveFloor, setSelectedItems]);
+  }, [updateActiveFloor, setSelectedItems]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -324,7 +333,7 @@ function App() {
       // Delete
       if (key === 'delete' || key === 'backspace') {
         if (selectedItems.length > 0) {
-          deleteSelected();
+          deleteSelected(selectedItems);
           e.preventDefault();
         }
       }
@@ -413,7 +422,7 @@ function App() {
           onMenuToggle={() => setShowMobileMenu(!showMobileMenu)}
           onUndo={undo}
           onRedo={redo}
-          onDelete={deleteSelected}
+          onDelete={() => deleteSelected(selectedItems)}
           canUndo={canUndo}
           canRedo={canRedo}
           hasSelection={selectedItems.length > 0}
@@ -444,6 +453,7 @@ function App() {
         flex: 1,
         position: 'relative',
         overflow: 'hidden',
+        marginBottom: isMobile ? '50px' : 0, // Account for fixed bottom toolbar on mobile
       }}>
         {/* Floor Plan Canvas */}
         <FloorPlanCanvas
@@ -492,12 +502,68 @@ function App() {
               units={units}
               wallDetailLevel={wallDetailLevel}
               onUpdate={(updates) => {
-                updateActiveFloor(f => ({
-                  ...f,
-                  doors: f.doors.map(d =>
+                const door = selectedItem.item;
+                const oldPosition = door.position;
+                const newPosition = updates.position !== undefined ? updates.position : oldPosition;
+
+                // Calculate old and new absolute positions
+                const wallDx = wall.end.x - wall.start.x;
+                const wallDy = wall.end.y - wall.start.y;
+                const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+                const oldAbsPos = oldPosition * wallLength;
+                const newAbsPos = newPosition * wallLength;
+
+                const oldCenter = {
+                  x: wall.start.x + (oldAbsPos / wallLength) * wallDx,
+                  y: wall.start.y + (oldAbsPos / wallLength) * wallDy
+                };
+                const newCenter = {
+                  x: wall.start.x + (newAbsPos / wallLength) * wallDx,
+                  y: wall.start.y + (newAbsPos / wallLength) * wallDy
+                };
+
+                // Threshold for considering a dimension endpoint as "snapped" to the door
+                const snapThreshold = 15;
+
+                updateActiveFloor(f => {
+                  // Update the door
+                  const updatedDoors = f.doors.map(d =>
                     d.id === selectedItem.item.id ? { ...d, ...updates } : d
-                  )
-                }));
+                  );
+
+                  // Update any dimensions that have endpoints near the old door center
+                  const updatedDimensions = (f.dimensions || []).map(dim => {
+                    let updated = { ...dim };
+
+                    // Check start point
+                    const startDist = Math.sqrt(
+                      Math.pow(dim.start.x - oldCenter.x, 2) +
+                      Math.pow(dim.start.y - oldCenter.y, 2)
+                    );
+                    if (startDist < snapThreshold) {
+                      updated.start = { ...newCenter };
+                    }
+
+                    // Check end point
+                    const endDist = Math.sqrt(
+                      Math.pow(dim.end.x - oldCenter.x, 2) +
+                      Math.pow(dim.end.y - oldCenter.y, 2)
+                    );
+                    if (endDist < snapThreshold) {
+                      updated.end = { ...newCenter };
+                    }
+
+                    return updated;
+                  });
+
+                  return {
+                    ...f,
+                    doors: updatedDoors,
+                    dimensions: updatedDimensions
+                  };
+                });
+
                 setSelectedItems(prev => prev.map(s => {
                   if (s.type === 'door' && s.item?.id === selectedItem.item.id) {
                     return { ...s, item: { ...s.item, ...updates } };
@@ -523,12 +589,68 @@ function App() {
               units={units}
               wallDetailLevel={wallDetailLevel}
               onUpdate={(updates) => {
-                updateActiveFloor(f => ({
-                  ...f,
-                  windows: f.windows.map(w =>
+                const window = selectedItem.item;
+                const oldPosition = window.position;
+                const newPosition = updates.position !== undefined ? updates.position : oldPosition;
+
+                // Calculate old and new absolute positions
+                const wallDx = wall.end.x - wall.start.x;
+                const wallDy = wall.end.y - wall.start.y;
+                const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+                const oldAbsPos = oldPosition * wallLength;
+                const newAbsPos = newPosition * wallLength;
+
+                const oldCenter = {
+                  x: wall.start.x + (oldAbsPos / wallLength) * wallDx,
+                  y: wall.start.y + (oldAbsPos / wallLength) * wallDy
+                };
+                const newCenter = {
+                  x: wall.start.x + (newAbsPos / wallLength) * wallDx,
+                  y: wall.start.y + (newAbsPos / wallLength) * wallDy
+                };
+
+                // Threshold for considering a dimension endpoint as "snapped" to the window
+                const snapThreshold = 15;
+
+                updateActiveFloor(f => {
+                  // Update the window
+                  const updatedWindows = f.windows.map(w =>
                     w.id === selectedItem.item.id ? { ...w, ...updates } : w
-                  )
-                }));
+                  );
+
+                  // Update any dimensions that have endpoints near the old window center
+                  const updatedDimensions = (f.dimensions || []).map(dim => {
+                    let updated = { ...dim };
+
+                    // Check start point
+                    const startDist = Math.sqrt(
+                      Math.pow(dim.start.x - oldCenter.x, 2) +
+                      Math.pow(dim.start.y - oldCenter.y, 2)
+                    );
+                    if (startDist < snapThreshold) {
+                      updated.start = { ...newCenter };
+                    }
+
+                    // Check end point
+                    const endDist = Math.sqrt(
+                      Math.pow(dim.end.x - oldCenter.x, 2) +
+                      Math.pow(dim.end.y - oldCenter.y, 2)
+                    );
+                    if (endDist < snapThreshold) {
+                      updated.end = { ...newCenter };
+                    }
+
+                    return updated;
+                  });
+
+                  return {
+                    ...f,
+                    windows: updatedWindows,
+                    dimensions: updatedDimensions
+                  };
+                });
+
                 setSelectedItems(prev => prev.map(s => {
                   if (s.type === 'window' && s.item?.id === selectedItem.item.id) {
                     return { ...s, item: { ...s.item, ...updates } };
@@ -539,6 +661,71 @@ function App() {
             />
           );
         })()}
+
+        {/* Editable temporary dimension for selected walls */}
+        {selectedItem?.type === 'wall' && (
+          <WallTempDimensionEditor
+            wall={selectedItem.item}
+            scale={zoom}
+            offset={offset}
+            units={units}
+            wallDetailLevel={wallDetailLevel}
+            onUpdate={(updates) => {
+              updateWall(selectedItem.item.id, updates);
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'wall' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+            onUpdateWithElements={(updates, oldLength, newLength) => {
+              const wallId = selectedItem.item.id;
+
+              // Update wall and recalculate door/window positions to keep them at absolute positions
+              updateActiveFloor(f => {
+                // Update doors on this wall - convert position to absolute, then back to new relative
+                const updatedDoors = f.doors.map(door => {
+                  if (door.wallId !== wallId) return door;
+                  // Current absolute position along wall
+                  const absolutePos = door.position * oldLength;
+                  // New relative position for new wall length
+                  const newPosition = absolutePos / newLength;
+                  // Clamp to valid range (0-1)
+                  return { ...door, position: Math.max(0.05, Math.min(0.95, newPosition)) };
+                });
+
+                // Update windows on this wall
+                const updatedWindows = f.windows.map(window => {
+                  if (window.wallId !== wallId) return window;
+                  const absolutePos = window.position * oldLength;
+                  const newPosition = absolutePos / newLength;
+                  return { ...window, position: Math.max(0.05, Math.min(0.95, newPosition)) };
+                });
+
+                // Update the wall
+                const updatedWalls = f.walls.map(w =>
+                  w.id === wallId ? { ...w, ...updates } : w
+                );
+
+                return {
+                  ...f,
+                  walls: updatedWalls,
+                  doors: updatedDoors,
+                  windows: updatedWindows,
+                };
+              });
+
+              // Update selected item
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'wall' && s.item?.id === wallId) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+          />
+        )}
 
         {/* Quick action buttons (floating) - desktop only */}
         {!isMobile && (
@@ -712,7 +899,7 @@ function App() {
                 return s;
               }));
             }}
-            onDelete={() => deleteSelected()}
+            onDelete={() => deleteSelected(selectedItems)}
             isMobile={isMobile}
           />
         )}
@@ -734,7 +921,7 @@ function App() {
                 return s;
               }));
             }}
-            onDelete={() => deleteSelected()}
+            onDelete={() => deleteSelected(selectedItems)}
             formatMeasurement={formatMeasurementFn}
             units={units}
             isMobile={isMobile}
@@ -758,7 +945,7 @@ function App() {
                 return s;
               }));
             }}
-            onDelete={() => deleteSelected()}
+            onDelete={() => deleteSelected(selectedItems)}
             formatMeasurement={formatMeasurementFn}
             units={units}
             isMobile={isMobile}
@@ -775,15 +962,46 @@ function App() {
                 )
               }));
             }}
-            onDelete={() => deleteSelected()}
+            onDelete={() => deleteSelected(selectedItems)}
             isMobile={isMobile}
           />
         )}
         {selectedItem?.type === 'roof' && (!isMobile || selectionSource === 'click') && (
           <RoofEditor
             roof={selectedItem.item}
-            onUpdate={(updates) => updateRoof(selectedItem.item.id, updates)}
-            onDelete={() => deleteSelected()}
+            onUpdate={(updates) => {
+              updateRoof(selectedItem.item.id, updates);
+              // Also update selectedItems to keep the editor in sync
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'roof' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+            onDelete={() => deleteSelected(selectedItems)}
+            isMobile={isMobile}
+          />
+        )}
+        {selectedItem?.type === 'text' && (!isMobile || selectionSource === 'click') && (
+          <TextEditor
+            text={selectedItem.item}
+            onUpdate={(updates) => {
+              updateActiveFloor(f => ({
+                ...f,
+                texts: (f.texts || []).map(t =>
+                  t.id === selectedItem.item.id ? { ...t, ...updates } : t
+                )
+              }));
+              // Also update selectedItems to keep the editor in sync
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'text' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+            onDelete={() => deleteSelected(selectedItems)}
             isMobile={isMobile}
           />
         )}

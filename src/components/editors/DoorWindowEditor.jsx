@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FloatingPanel, PanelSection } from '../ui/Panel';
 import { Button } from '../ui/Button';
 import { MeasurementInput, Select, NumberInput, Checkbox } from '../ui/Input';
@@ -17,7 +17,10 @@ export const DoorEditor = ({
   units,
   x = 20,
   y = 100,
+  isMobile = false,
 }) => {
+  const [minimized, setMinimized] = useState(false);
+
   if (!door) return null;
 
   const doorTypeOptions = DOOR_TYPES.map((type) => ({
@@ -29,6 +32,9 @@ export const DoorEditor = ({
     <FloatingPanel
       title="Door Properties"
       onClose={onClose}
+      onMinimize={() => setMinimized(!minimized)}
+      minimized={minimized}
+      isMobile={isMobile}
       x={x}
       y={y}
     >
@@ -111,11 +117,11 @@ export const DoorEditor = ({
         <PanelSection title="Swing Angle">
           <NumberInput
             label="Angle"
-            value={door.swingAngle || 90}
+            value={door.swingAngle ?? 90}
             onChange={(swingAngle) => onUpdate({ swingAngle })}
-            min={15}
+            min={0}
             max={180}
-            step={15}
+            step={5}
             suffix="°"
           />
         </PanelSection>
@@ -146,7 +152,10 @@ export const WindowEditor = ({
   units,
   x = 20,
   y = 100,
+  isMobile = false,
 }) => {
+  const [minimized, setMinimized] = useState(false);
+
   if (!win) return null;
 
   const windowTypeOptions = WINDOW_TYPES.map((type) => ({
@@ -158,6 +167,9 @@ export const WindowEditor = ({
     <FloatingPanel
       title="Window Properties"
       onClose={onClose}
+      onMinimize={() => setMinimized(!minimized)}
+      minimized={minimized}
+      isMobile={isMobile}
       x={x}
       y={y}
     >

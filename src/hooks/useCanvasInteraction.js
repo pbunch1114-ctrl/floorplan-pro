@@ -4,6 +4,48 @@ import { WALL_THICKNESS_OPTIONS } from '../constants/walls';
 import { distance, closestPointOnLine } from '../utils/geometry';
 import { snapToGrid, snapToGridSize, generateId, pixelsToFeet } from '../utils/measurements';
 
+// Helper to get points array from roof (handles legacy format)
+function getRoofPoints(roof) {
+  if (roof.points && roof.points.length >= 3) {
+    return roof.points;
+  }
+  // Legacy format - convert x, y, width, height to points
+  const { x, y, width, height } = roof;
+  return [
+    { x, y },
+    { x: x + width, y },
+    { x: x + width, y: y + height },
+    { x, y: y + height },
+  ];
+}
+
+// Helper to check if point is inside polygon (ray casting algorithm)
+function isPointInPolygon(point, polygon) {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    if (((yi > point.y) !== (yj > point.y)) &&
+        (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Helper to get bounding box from points
+function getRoofBoundingBox(points) {
+  const xs = points.map(p => p.x);
+  const ys = points.map(p => p.y);
+  return {
+    minX: Math.min(...xs),
+    maxX: Math.max(...xs),
+    minY: Math.min(...ys),
+    maxY: Math.max(...ys),
+  };
+}
+
 /**
  * useCanvasInteraction - Hook for handling canvas interactions
  * Manages drawing, selection, and tool operations
@@ -209,11 +251,76 @@ export const useCanvasInteraction = ({
       }
     }
 
-    // Check roofs
+    // Check roofs (using points-based polygon)
     for (const roof of activeFloor.roofs || []) {
-      if (pos.x >= roof.x && pos.x <= roof.x + roof.width &&
-          pos.y >= roof.y && pos.y <= roof.y + roof.height) {
+      const points = getRoofPoints(roof);
+      if (isPointInPolygon(pos, points)) {
         return { type: 'roof', item: roof };
+      }
+    }
+
+    // Check dimensions
+    if (layers.dimensions?.visible !== false) {
+      for (const dim of activeFloor.dimensions || []) {
+        // Check if click is near the dimension line
+        const dx = dim.end.x - dim.start.x;
+        const dy = dim.end.y - dim.start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        if (length < 0.001) continue;
+
+        // Calculate offset position for the dimension line
+        const angle = Math.atan2(dy, dx);
+        const perpX = -Math.sin(angle) * (dim.offset || 0);
+        const perpY = Math.cos(angle) * (dim.offset || 0);
+        const offsetStart = { x: dim.start.x + perpX, y: dim.start.y + perpY };
+        const offsetEnd = { x: dim.end.x + perpX, y: dim.end.y + perpY };
+
+        // Check distance to dimension line
+        const t = ((pos.x - offsetStart.x) * dx + (pos.y - offsetStart.y) * dy) / (length * length);
+        if (t >= -0.1 && t <= 1.1) { // Allow some tolerance beyond endpoints
+          const closest = { x: offsetStart.x + t * dx, y: offsetStart.y + t * dy };
+          if (distance(pos, closest) < 15) {
+            return { type: 'dimension', item: dim };
+          }
+        }
+
+        // Also check if click is near endpoints
+        if (distance(pos, offsetStart) < 15 || distance(pos, offsetEnd) < 15) {
+          return { type: 'dimension', item: dim };
+        }
+      }
+    }
+
+    // Check annotation lines
+    if (layers.annotations?.visible !== false) {
+      for (const line of activeFloor.lines || []) {
+        const dx = line.end.x - line.start.x;
+        const dy = line.end.y - line.start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        if (length < 0.001) continue;
+
+        const t = ((pos.x - line.start.x) * dx + (pos.y - line.start.y) * dy) / (length * length);
+        if (t >= 0 && t <= 1) {
+          const closest = { x: line.start.x + t * dx, y: line.start.y + t * dy };
+          if (distance(pos, closest) < 10) {
+            return { type: 'line', item: line };
+          }
+        }
+      }
+
+      // Check text annotations
+      for (const text of activeFloor.texts || []) {
+        // Estimate text bounding box based on font size and text length
+        const fontSize = text.fontSize || 14;
+        const textWidth = (text.text?.length || 4) * fontSize * 0.6; // Approximate character width
+        const textHeight = fontSize * 1.5;
+        const halfW = textWidth / 2 + 10; // Add padding for easier selection
+        const halfH = textHeight / 2 + 5;
+
+        if (pos.x >= text.position.x - halfW && pos.x <= text.position.x + halfW &&
+            pos.y >= text.position.y - halfH && pos.y <= text.position.y + halfH) {
+          return { type: 'text', item: text };
+        }
       }
     }
 
@@ -282,11 +389,26 @@ export const useCanvasInteraction = ({
       } else if (type === 'roof') {
         updateActiveFloor(f => ({
           ...f,
-          roofs: (f.roofs || []).map(r =>
-            r.id === item.id ? { ...r, x: r.x + deltaX, y: r.y + deltaY } : r
+          roofs: (f.roofs || []).map(r => {
+            if (r.id !== item.id) return r;
+            // Move all points by delta
+            const pts = getRoofPoints(r);
+            const newPoints = pts.map(pt => ({
+              x: pt.x + deltaX,
+              y: pt.y + deltaY,
+            }));
+            return { ...r, points: newPoints };
+          }),
+        }));
+      } else if (type === 'text') {
+        updateActiveFloor(f => ({
+          ...f,
+          texts: (f.texts || []).map(t =>
+            t.id === item.id ? { ...t, position: { x: t.position.x + deltaX, y: t.position.y + deltaY } } : t
           ),
         }));
       }
+      // Note: dimensions and lines use grip editing, not move tool
     });
   }, [selectedItems, updateActiveFloor]);
 
@@ -345,16 +467,18 @@ export const useCanvasInteraction = ({
           ),
         }));
       } else if (type === 'roof') {
-        const newPos = rotatePoint(item.x + item.width / 2, item.y + item.height / 2);
         updateActiveFloor(f => ({
           ...f,
-          roofs: (f.roofs || []).map(r =>
-            r.id === item.id ? {
-              ...r,
-              x: snap(newPos.x - item.width / 2),
-              y: snap(newPos.y - item.height / 2),
-            } : r
-          ),
+          roofs: (f.roofs || []).map(r => {
+            if (r.id !== item.id) return r;
+            // Rotate all points around the center
+            const pts = getRoofPoints(r);
+            const newPoints = pts.map(pt => {
+              const rotated = rotatePoint(pt.x, pt.y);
+              return { x: snap(rotated.x), y: snap(rotated.y) };
+            });
+            return { ...r, points: newPoints };
+          }),
         }));
       }
     });
@@ -438,7 +562,7 @@ export const useCanvasInteraction = ({
       };
       updateActiveFloor(f => ({
         ...f,
-        annotations: [...(f.annotations || []), newText]
+        texts: [...(f.texts || []), newText]
       }));
       setSelectedItems([{ type: 'text', item: newText }]);
       setSelectionSource?.('draw');
@@ -448,7 +572,7 @@ export const useCanvasInteraction = ({
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
     } else if (tool === 'select') {
-      // First check if clicking on a grip of a selected wall
+      // First check if clicking on a grip of a selected wall or roof
       const gripRadius = isMobile ? 20 : 12;
       for (const selected of selectedItems) {
         if (selected.type === 'wall') {
@@ -458,12 +582,79 @@ export const useCanvasInteraction = ({
 
           if (dStart < gripRadius) {
             // Clicked on start grip - begin grip drag
-            setActiveGrip({ wall, endpoint: 'start' });
+            setActiveGrip({ type: 'wall', wall, endpoint: 'start' });
             return;
           }
           if (dEnd < gripRadius) {
             // Clicked on end grip - begin grip drag
-            setActiveGrip({ wall, endpoint: 'end' });
+            setActiveGrip({ type: 'wall', wall, endpoint: 'end' });
+            return;
+          }
+        }
+
+        // Check roof corner grips
+        if (selected.type === 'roof') {
+          const roof = selected.item;
+          const points = getRoofPoints(roof);
+
+          for (let i = 0; i < points.length; i++) {
+            const d = distance(pos, points[i]);
+            if (d < gripRadius) {
+              // Clicked on roof corner grip - begin grip drag
+              setActiveGrip({ type: 'roof', roof, pointIndex: i });
+              return;
+            }
+          }
+        }
+
+        // Check dimension endpoint grips
+        if (selected.type === 'dimension') {
+          const dim = selected.item;
+          const dStart = distance(pos, dim.start);
+          const dEnd = distance(pos, dim.end);
+
+          // Calculate offset midpoint position (where the diamond handle is)
+          const dx = dim.end.x - dim.start.x;
+          const dy = dim.end.y - dim.start.y;
+          const angle = Math.atan2(dy, dx);
+          const perpX = -Math.sin(angle) * (dim.offset || 0);
+          const perpY = Math.cos(angle) * (dim.offset || 0);
+          const offsetMid = {
+            x: (dim.start.x + dim.end.x) / 2 + perpX,
+            y: (dim.start.y + dim.end.y) / 2 + perpY
+          };
+          const dMid = distance(pos, offsetMid);
+
+          // Check offset grip first (diamond at midpoint) - takes priority
+          if (dMid < gripRadius) {
+            setActiveGrip({ type: 'dimension-offset', dimension: dim });
+            return;
+          }
+
+          if (dStart < gripRadius) {
+            // Clicked on start grip - begin grip drag
+            setActiveGrip({ type: 'dimension', dimension: dim, endpoint: 'start' });
+            return;
+          }
+          if (dEnd < gripRadius) {
+            // Clicked on end grip - begin grip drag
+            setActiveGrip({ type: 'dimension', dimension: dim, endpoint: 'end' });
+            return;
+          }
+        }
+
+        // Check annotation line endpoint grips
+        if (selected.type === 'line') {
+          const line = selected.item;
+          const dStart = distance(pos, line.start);
+          const dEnd = distance(pos, line.end);
+
+          if (dStart < gripRadius) {
+            setActiveGrip({ type: 'line', line, endpoint: 'start' });
+            return;
+          }
+          if (dEnd < gripRadius) {
+            setActiveGrip({ type: 'line', line, endpoint: 'end' });
             return;
           }
         }
@@ -485,9 +676,13 @@ export const useCanvasInteraction = ({
           setSelectionSource?.('click');
           setDragItem(item.item);
           // For walls, store the current pos as the drag reference point
-          // For other items, calculate offset from item position
+          // For text items, use position.x/y
+          // For other items, calculate offset from item position (x, y)
+          // Note: dimensions and lines use grip editing, not whole-item dragging
           if (item.type === 'wall') {
             setDragOffset({ x: pos.x, y: pos.y });
+          } else if (item.type === 'text') {
+            setDragOffset({ x: pos.x - (item.item.position?.x || 0), y: pos.y - (item.item.position?.y || 0) });
           } else {
             setDragOffset({ x: pos.x - (item.item.x || 0), y: pos.y - (item.item.y || 0) });
           }
@@ -1065,25 +1260,25 @@ export const useCanvasInteraction = ({
       const scaleChange = dist / pinchStart.dist;
       const newScale = Math.max(0.1, Math.min(5, pinchStart.scale * scaleChange));
 
-      // Calculate offset to zoom towards pinch center
+      // Calculate offset to zoom towards the INITIAL pinch center
       const canvas = canvasRef.current;
       if (canvas) {
         const rect = canvas.getBoundingClientRect();
-        const pinchCenterX = centerX - rect.left;
-        const pinchCenterY = centerY - rect.top;
+        // Use the initial pinch center for zoom calculation
+        const initialPinchCenterX = pinchStart.centerX - rect.left;
+        const initialPinchCenterY = pinchStart.centerY - rect.top;
 
-        // Adjust offset to keep pinch center stationary
+        // Adjust offset to keep initial pinch center stationary during zoom
         const scaleRatio = newScale / pinchStart.scale;
-        const newOffsetX = pinchCenterX - (pinchCenterX - pinchStart.offsetX) * scaleRatio;
-        const newOffsetY = pinchCenterY - (pinchCenterY - pinchStart.offsetY) * scaleRatio;
+        const newOffsetX = initialPinchCenterX - (initialPinchCenterX - pinchStart.offsetX) * scaleRatio;
+        const newOffsetY = initialPinchCenterY - (initialPinchCenterY - pinchStart.offsetY) * scaleRatio;
 
-        // Also handle two-finger pan
-        const panDeltaX = centerX - panStartRef.current.x;
-        const panDeltaY = centerY - panStartRef.current.y;
+        // Also handle two-finger pan (movement of the pinch center from initial position)
+        const panDeltaX = centerX - pinchStart.centerX;
+        const panDeltaY = centerY - pinchStart.centerY;
 
         setScale(newScale);
         setOffset({ x: newOffsetX + panDeltaX, y: newOffsetY + panDeltaY });
-        panStartRef.current = { x: centerX, y: centerY };
       }
       return;
     }
@@ -1111,24 +1306,36 @@ export const useCanvasInteraction = ({
       if (isMobile && clientX !== undefined && clientY !== undefined && setOffset) {
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
-        const edgeThreshold = 100; // pixels from edge
-        const panSpeed = 4; // pixels to pan per frame
+        const edgeThreshold = 80; // pixels from edge
+        const basePanSpeed = 1.5; // reduced base speed
         let panX = 0;
         let panY = 0;
 
-        // Check edges using screen coordinates
-        if (clientX < edgeThreshold) panX = panSpeed;
-        if (clientX > screenWidth - edgeThreshold) panX = -panSpeed;
-        if (clientY < edgeThreshold) panY = panSpeed;
-        if (clientY > screenHeight - edgeThreshold) panY = -panSpeed;
+        // Check edges using screen coordinates - gradual speed based on distance from edge
+        if (clientX < edgeThreshold) {
+          const proximity = 1 - (clientX / edgeThreshold);
+          panX = basePanSpeed * proximity;
+        }
+        if (clientX > screenWidth - edgeThreshold) {
+          const proximity = 1 - ((screenWidth - clientX) / edgeThreshold);
+          panX = -basePanSpeed * proximity;
+        }
+        if (clientY < edgeThreshold) {
+          const proximity = 1 - (clientY / edgeThreshold);
+          panY = basePanSpeed * proximity;
+        }
+        if (clientY > screenHeight - edgeThreshold) {
+          const proximity = 1 - ((screenHeight - clientY) / edgeThreshold);
+          panY = -basePanSpeed * proximity;
+        }
 
         if (panX !== 0 || panY !== 0) {
           setOffset(prev => ({ x: prev.x + panX, y: prev.y + panY }));
         }
       }
 
-      // Apply snapping for walls, doors, and windows
-      if (tool === 'wall' || tool === 'door' || tool === 'window') {
+      // Apply snapping for walls, doors, windows, dimensions, and lines
+      if (tool === 'wall' || tool === 'door' || tool === 'window' || tool === 'dimension' || tool === 'line') {
         // Apply angle snapping first (for walls)
         if (tool === 'wall') {
           snappedPos = snapAngle(drawStart, snappedPos);
@@ -1189,6 +1396,56 @@ export const useCanvasInteraction = ({
             }
           }
 
+          // Door midpoint snaps - snap to center of doors on this wall
+          const wallDoors = (activeFloor?.doors || []).filter(d => d.wallId === wall.id);
+          if (snaps.midpoint && wallDoors.length > 0) {
+            const wallDx = wall.end.x - wall.start.x;
+            const wallDy = wall.end.y - wall.start.y;
+            const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+            wallDoors.forEach(door => {
+              // door.position is normalized (0-1) along the wall
+              const doorCenterPos = door.position * wallLength;
+              const doorMid = {
+                x: wall.start.x + (doorCenterPos / wallLength) * wallDx,
+                y: wall.start.y + (doorCenterPos / wallLength) * wallDy
+              };
+              if (!isNearStart(doorMid)) {
+                snapCandidates.push({
+                  ...doorMid,
+                  type: 'door-midpoint',
+                  wall,
+                  door
+                });
+              }
+            });
+          }
+
+          // Window midpoint snaps - snap to center of windows on this wall
+          const wallWindows = (activeFloor?.windows || []).filter(w => w.wallId === wall.id);
+          if (snaps.midpoint && wallWindows.length > 0) {
+            const wallDx = wall.end.x - wall.start.x;
+            const wallDy = wall.end.y - wall.start.y;
+            const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+            wallWindows.forEach(window => {
+              // window.position is normalized (0-1) along the wall
+              const windowCenterPos = window.position * wallLength;
+              const windowMid = {
+                x: wall.start.x + (windowCenterPos / wallLength) * wallDx,
+                y: wall.start.y + (windowCenterPos / wallLength) * wallDy
+              };
+              if (!isNearStart(windowMid)) {
+                snapCandidates.push({
+                  ...windowMid,
+                  type: 'window-midpoint',
+                  wall,
+                  window
+                });
+              }
+            });
+          }
+
           // Perpendicular snap - find the point on wall where a line from drawStart would be perpendicular
           if (snaps.perpendicular && drawStart) {
             const wallDx = wall.end.x - wall.start.x;
@@ -1242,9 +1499,9 @@ export const useCanvasInteraction = ({
         let bestSnap = null;
         let bestDist = POINT_SNAP_DIST;
 
-        // First pass: check endpoints and midpoints (highest priority)
+        // First pass: check endpoints and midpoints (highest priority) including door/window midpoints
         snapCandidates
-          .filter(c => c.type === 'endpoint' || c.type === 'midpoint')
+          .filter(c => c.type === 'endpoint' || c.type === 'midpoint' || c.type === 'door-midpoint' || c.type === 'window-midpoint')
           .forEach(candidate => {
             const d = distance(snappedPos, candidate);
             if (d < bestDist) {
@@ -1295,9 +1552,9 @@ export const useCanvasInteraction = ({
 
         // Check for alignment guidelines
         let guidelines = null;
-        const alignPoints = snapCandidates.filter(c => c.type === 'endpoint' || c.type === 'midpoint');
+        const alignPoints = snapCandidates.filter(c => c.type === 'endpoint' || c.type === 'midpoint' || c.type === 'door-midpoint' || c.type === 'window-midpoint');
 
-        if (bestSnap && (bestSnap.type === 'endpoint' || bestSnap.type === 'midpoint')) {
+        if (bestSnap && (bestSnap.type === 'endpoint' || bestSnap.type === 'midpoint' || bestSnap.type === 'door-midpoint' || bestSnap.type === 'window-midpoint')) {
           // Snapped directly to a point - show guidelines through that point
           guidelines = [
             {
@@ -1441,7 +1698,7 @@ export const useCanvasInteraction = ({
     }
 
     // Handle grip dragging for wall endpoints
-    if (activeGrip && tool === 'select') {
+    if (activeGrip && activeGrip.type === 'wall' && tool === 'select') {
       const pos = getPointerPos(e);
       let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
 
@@ -1589,6 +1846,350 @@ export const useCanvasInteraction = ({
       setActiveGrip(prev => ({
         ...prev,
         wall: updatedWall,
+      }));
+      return;
+    }
+
+    // Handle grip dragging for roof corner points
+    if (activeGrip && activeGrip.type === 'roof' && tool === 'select') {
+      const pos = getPointerPos(e);
+      let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
+
+      // Snap detection for roof corners
+      const POINT_SNAP_DIST = isMobile ? 50 : 20;
+      const walls = activeFloor?.walls || [];
+      const roofs = activeFloor?.roofs || [];
+
+      // Collect snap candidates from wall endpoints
+      const snapCandidates = [];
+
+      if (snaps.endpoint) {
+        walls.forEach(wall => {
+          snapCandidates.push({ x: wall.start.x, y: wall.start.y, type: 'endpoint', wall });
+          snapCandidates.push({ x: wall.end.x, y: wall.end.y, type: 'endpoint', wall });
+        });
+
+        // Also snap to other roof corners
+        roofs.forEach(roof => {
+          if (roof.id === activeGrip.roof.id) return; // Skip current roof
+          const pts = getRoofPoints(roof);
+          pts.forEach((pt, i) => {
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint', roof, pointIndex: i });
+          });
+        });
+
+        // Snap to other corners of the same roof (except the one being dragged)
+        const currentRoofPoints = getRoofPoints(activeGrip.roof);
+        currentRoofPoints.forEach((pt, i) => {
+          if (i === activeGrip.pointIndex) return; // Skip the point being dragged
+          snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+        });
+      }
+
+      // Find best snap
+      let bestSnap = null;
+      let bestDist = POINT_SNAP_DIST;
+
+      snapCandidates.forEach(candidate => {
+        const d = distance(snappedPos, candidate);
+        if (d < bestDist) {
+          bestDist = d;
+          bestSnap = candidate;
+        }
+      });
+
+      if (bestSnap) {
+        snappedPos = { x: bestSnap.x, y: bestSnap.y };
+        setActiveSnap({
+          type: bestSnap.type,
+          point: { x: bestSnap.x, y: bestSnap.y },
+        });
+      } else {
+        setActiveSnap(null);
+      }
+
+      // Update the roof point
+      const currentPoints = getRoofPoints(activeGrip.roof);
+      const newPoints = currentPoints.map((pt, i) =>
+        i === activeGrip.pointIndex ? { x: snappedPos.x, y: snappedPos.y } : pt
+      );
+
+      const updatedRoof = {
+        ...activeGrip.roof,
+        points: newPoints,
+      };
+
+      // Update the roof in floor data
+      updateActiveFloor(f => ({
+        ...f,
+        roofs: f.roofs.map(r => r.id === activeGrip.roof.id ? updatedRoof : r),
+      }));
+
+      // Update selectedItems to keep in sync
+      setSelectedItems(prev => prev.map(s => {
+        if (s.type === 'roof' && s.item?.id === activeGrip.roof.id) {
+          return { ...s, item: updatedRoof };
+        }
+        return s;
+      }));
+
+      // Update the activeGrip reference
+      setActiveGrip(prev => ({
+        ...prev,
+        roof: updatedRoof,
+      }));
+      return;
+    }
+
+    // Handle grip dragging for dimension endpoints
+    if (activeGrip && activeGrip.type === 'dimension' && tool === 'select') {
+      const pos = getPointerPos(e);
+      let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
+
+      // Snap to wall endpoints
+      const POINT_SNAP_DIST = isMobile ? 50 : 20;
+      const walls = activeFloor?.walls || [];
+      const snapCandidates = [];
+
+      if (snaps.endpoint) {
+        walls.forEach(wall => {
+          snapCandidates.push({ x: wall.start.x, y: wall.start.y, type: 'endpoint', wall });
+          snapCandidates.push({ x: wall.end.x, y: wall.end.y, type: 'endpoint', wall });
+        });
+      }
+
+      if (snaps.midpoint) {
+        walls.forEach(wall => {
+          const mid = {
+            x: (wall.start.x + wall.end.x) / 2,
+            y: (wall.start.y + wall.end.y) / 2
+          };
+          snapCandidates.push({ ...mid, type: 'midpoint', wall });
+
+          // Door midpoint snaps
+          const wallDoors = (activeFloor?.doors || []).filter(d => d.wallId === wall.id);
+          if (wallDoors.length > 0) {
+            const wallDx = wall.end.x - wall.start.x;
+            const wallDy = wall.end.y - wall.start.y;
+            const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+            wallDoors.forEach(door => {
+              const doorCenterPos = door.position * wallLength;
+              const doorMid = {
+                x: wall.start.x + (doorCenterPos / wallLength) * wallDx,
+                y: wall.start.y + (doorCenterPos / wallLength) * wallDy
+              };
+              snapCandidates.push({ ...doorMid, type: 'door-midpoint', wall, door });
+            });
+          }
+
+          // Window midpoint snaps
+          const wallWindows = (activeFloor?.windows || []).filter(w => w.wallId === wall.id);
+          if (wallWindows.length > 0) {
+            const wallDx = wall.end.x - wall.start.x;
+            const wallDy = wall.end.y - wall.start.y;
+            const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+            wallWindows.forEach(window => {
+              const windowCenterPos = window.position * wallLength;
+              const windowMid = {
+                x: wall.start.x + (windowCenterPos / wallLength) * wallDx,
+                y: wall.start.y + (windowCenterPos / wallLength) * wallDy
+              };
+              snapCandidates.push({ ...windowMid, type: 'window-midpoint', wall, window });
+            });
+          }
+        });
+      }
+
+      // Find best snap
+      let bestSnap = null;
+      let bestDist = POINT_SNAP_DIST;
+
+      snapCandidates.forEach(candidate => {
+        const d = distance(snappedPos, candidate);
+        if (d < bestDist) {
+          bestDist = d;
+          bestSnap = candidate;
+        }
+      });
+
+      if (bestSnap) {
+        snappedPos = { x: bestSnap.x, y: bestSnap.y };
+        setActiveSnap({
+          type: bestSnap.type,
+          point: { x: bestSnap.x, y: bestSnap.y },
+        });
+      } else {
+        setActiveSnap(null);
+      }
+
+      // Update the dimension endpoint
+      const updatedDimension = {
+        ...activeGrip.dimension,
+        [activeGrip.endpoint]: { x: snappedPos.x, y: snappedPos.y },
+      };
+
+      updateActiveFloor(f => ({
+        ...f,
+        dimensions: (f.dimensions || []).map(d =>
+          d.id === activeGrip.dimension.id ? updatedDimension : d
+        ),
+      }));
+
+      // Update selectedItems to keep in sync
+      setSelectedItems(prev => prev.map(s => {
+        if (s.type === 'dimension' && s.item?.id === activeGrip.dimension.id) {
+          return { ...s, item: updatedDimension };
+        }
+        return s;
+      }));
+
+      // Update activeGrip reference
+      setActiveGrip(prev => ({
+        ...prev,
+        dimension: updatedDimension,
+      }));
+      return;
+    }
+
+    // Handle grip dragging for dimension offset (diamond grip at midpoint)
+    if (activeGrip && activeGrip.type === 'dimension-offset' && tool === 'select') {
+      const pos = getPointerPos(e);
+      const dim = activeGrip.dimension;
+
+      // Calculate perpendicular distance from cursor to the reference line (start to end)
+      const dx = dim.end.x - dim.start.x;
+      const dy = dim.end.y - dim.start.y;
+      const lineLength = Math.sqrt(dx * dx + dy * dy);
+
+      if (lineLength > 0) {
+        // Perpendicular unit vector (pointing in offset direction)
+        const perpX = -dy / lineLength;
+        const perpY = dx / lineLength;
+
+        // Vector from start to cursor
+        const toCursorX = pos.x - dim.start.x;
+        const toCursorY = pos.y - dim.start.y;
+
+        // Project onto perpendicular to get new offset
+        let newOffset = toCursorX * perpX + toCursorY * perpY;
+
+        // Snap to grid
+        if (snaps.grid) {
+          newOffset = snap(newOffset);
+        }
+
+        // Snap to offsets of nearby dimensions
+        const dimensions = activeFloor?.dimensions || [];
+        const OFFSET_SNAP_DIST = 15;
+
+        dimensions.forEach(otherDim => {
+          if (otherDim.id === dim.id) return;
+          const otherOffset = otherDim.offset || 30;
+          if (Math.abs(newOffset - otherOffset) < OFFSET_SNAP_DIST) {
+            newOffset = otherOffset;
+            setActiveSnap({
+              type: 'offset-align',
+              point: { x: pos.x, y: pos.y },
+            });
+          }
+        });
+
+        // Update the dimension offset
+        const updatedDimension = {
+          ...dim,
+          offset: newOffset,
+        };
+
+        updateActiveFloor(f => ({
+          ...f,
+          dimensions: (f.dimensions || []).map(d =>
+            d.id === dim.id ? updatedDimension : d
+          ),
+        }));
+
+        // Update selectedItems to keep in sync
+        setSelectedItems(prev => prev.map(s => {
+          if (s.type === 'dimension' && s.item?.id === dim.id) {
+            return { ...s, item: updatedDimension };
+          }
+          return s;
+        }));
+
+        // Update activeGrip reference
+        setActiveGrip(prev => ({
+          ...prev,
+          dimension: updatedDimension,
+        }));
+      }
+      return;
+    }
+
+    // Handle grip dragging for annotation line endpoints
+    if (activeGrip && activeGrip.type === 'line' && tool === 'select') {
+      const pos = getPointerPos(e);
+      let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
+
+      // Snap to wall endpoints
+      const POINT_SNAP_DIST = isMobile ? 50 : 20;
+      const walls = activeFloor?.walls || [];
+      const snapCandidates = [];
+
+      if (snaps.endpoint) {
+        walls.forEach(wall => {
+          snapCandidates.push({ x: wall.start.x, y: wall.start.y, type: 'endpoint', wall });
+          snapCandidates.push({ x: wall.end.x, y: wall.end.y, type: 'endpoint', wall });
+        });
+      }
+
+      // Find best snap
+      let bestSnap = null;
+      let bestDist = POINT_SNAP_DIST;
+
+      snapCandidates.forEach(candidate => {
+        const d = distance(snappedPos, candidate);
+        if (d < bestDist) {
+          bestDist = d;
+          bestSnap = candidate;
+        }
+      });
+
+      if (bestSnap) {
+        snappedPos = { x: bestSnap.x, y: bestSnap.y };
+        setActiveSnap({
+          type: bestSnap.type,
+          point: { x: bestSnap.x, y: bestSnap.y },
+        });
+      } else {
+        setActiveSnap(null);
+      }
+
+      // Update the line endpoint
+      const updatedLine = {
+        ...activeGrip.line,
+        [activeGrip.endpoint]: { x: snappedPos.x, y: snappedPos.y },
+      };
+
+      updateActiveFloor(f => ({
+        ...f,
+        lines: (f.lines || []).map(l =>
+          l.id === activeGrip.line.id ? updatedLine : l
+        ),
+      }));
+
+      // Update selectedItems to keep in sync
+      setSelectedItems(prev => prev.map(s => {
+        if (s.type === 'line' && s.item?.id === activeGrip.line.id) {
+          return { ...s, item: updatedLine };
+        }
+        return s;
+      }));
+
+      // Update activeGrip reference
+      setActiveGrip(prev => ({
+        ...prev,
+        line: updatedLine,
       }));
       return;
     }
@@ -1749,8 +2350,38 @@ export const useCanvasInteraction = ({
               i.id === dragItem.id ? { ...i, position: newPosition } : i
             )
           }));
+
+          // Also update selectedItems so TempDimensionEditor updates in real-time
+          setSelectedItems(prev => prev.map(s => {
+            if (s.type === itemType && s.item?.id === dragItem.id) {
+              return { ...s, item: { ...s.item, position: newPosition } };
+            }
+            return s;
+          }));
         }
+      } else if (itemType === 'text') {
+        // Move text annotation
+        const newX = pos.x - dragOffset.x;
+        const newY = pos.y - dragOffset.y;
+
+        const updatedText = { ...dragItem, position: { x: newX, y: newY } };
+
+        updateActiveFloor(f => ({
+          ...f,
+          texts: (f.texts || []).map(t =>
+            t.id === dragItem.id ? updatedText : t
+          )
+        }));
+
+        // Update selectedItems to keep in sync
+        setSelectedItems(prev => prev.map(s => {
+          if (s.type === 'text' && s.item?.id === dragItem.id) {
+            return { ...s, item: updatedText };
+          }
+          return s;
+        }));
       }
+      // Note: dimensions and lines use grip editing for endpoints, not whole-item dragging
     }
   }, [isPanning, isDrawing, drawStart, tool, getPointerPos, snap, snapAngle, dragItem, selectedItems, dragOffset, activeFloor, updateActiveFloor, pinchStart, setScale, setOffset, offset, canvasRef, isMobile, activeGrip, setSelectedItems, snaps]);
 
@@ -1797,13 +2428,19 @@ export const useCanvasInteraction = ({
         setSelectedItems([{ type: 'room', item: newRoom }]);
         setSelectionSource?.('draw');
       } else if (tool === 'roof' && Math.abs(dx) > 10 && Math.abs(dy) > 10) {
-        // Create roof
+        // Create roof with points array (clockwise from top-left)
+        const minX = Math.min(drawStart.x, drawEnd.x);
+        const minY = Math.min(drawStart.y, drawEnd.y);
+        const maxX = Math.max(drawStart.x, drawEnd.x);
+        const maxY = Math.max(drawStart.y, drawEnd.y);
         const newRoof = {
           id: generateId(),
-          x: Math.min(drawStart.x, drawEnd.x),
-          y: Math.min(drawStart.y, drawEnd.y),
-          width: Math.abs(dx),
-          height: Math.abs(dy),
+          points: [
+            { x: minX, y: minY },  // Top-left
+            { x: maxX, y: minY },  // Top-right
+            { x: maxX, y: maxY },  // Bottom-right
+            { x: minX, y: maxY },  // Bottom-left
+          ],
           type: 'gable',
           pitch: '6:12',
           ridgeDirection: Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical',

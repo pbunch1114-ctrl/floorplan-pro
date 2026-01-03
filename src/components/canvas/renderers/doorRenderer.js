@@ -46,7 +46,7 @@ export function drawDoor(ctx, door, wall, isSelected = false, wallDetailLevel = 
     ctx.strokeStyle = isSelected ? '#00ffaa' : '#000000';
     ctx.lineWidth = 1 * lineScale;
 
-    // Door stop dimensions - on BOTH jambs, positioned 1-3/8" from wall edge (door thickness)
+    // Door stop dimensions - on BOTH jambs, positioned to create space for door panel
     const doorThickness = inchesToPixels(1.375); // 1-3/8" door thickness
     const stopWidth = 4;   // Width of the door stop bump-out
     const stopDepth = 3;   // How far it sticks into the opening
@@ -54,10 +54,11 @@ export function drawDoor(ctx, door, wall, isSelected = false, wallDetailLevel = 
 
     // Door opens inward by default, so stop is positioned from that side
     const openDir = (door.openDirection || 'inward') === 'inward' ? 1 : -1;
-    // Stop position: 1-3/8" from the swing side of the wall
+    // Stop position: door thickness + half stop width from wall edge
+    // This ensures the door panel fits between the wall edge and the inside edge of the stop
     const stopY = openDir === 1
-      ? -thickness / 2 + doorThickness  // Inward: stop near top (outside) of wall
-      : thickness / 2 - doorThickness;  // Outward: stop near bottom (inside) of wall
+      ? -thickness / 2 + doorThickness + stopWidth / 2  // Inward: stop near top (outside) of wall
+      : thickness / 2 - doorThickness - stopWidth / 2;  // Outward: stop near bottom (inside) of wall
 
     // Draw combined casing + door stop as one continuous shape (no internal lines)
     // Left jamb - draw outer perimeter only
@@ -151,35 +152,41 @@ export function drawDoor(ctx, door, wall, isSelected = false, wallDetailLevel = 
 
 function drawSingleDoor(ctx, doorWidth, thickness, swing, openDirection, swingAngle, isSelected, isArchitectural = false, casingWidth = 0, lineScale = 1) {
   const openDir = (openDirection || 'inward') === 'inward' ? 1 : -1;
-  const swingAngleDeg = swingAngle || 90;
+  const swingAngleDeg = swingAngle ?? 90;
   const swingAngleRad = (swingAngleDeg * Math.PI) / 180;
 
-  // Hinge point - position at edge of casing (not door opening)
-  // In architectural mode, hinge is at casing edge so door panel corner meets casing corner
-  // Left swing: hinge on left side
-  // Right swing: hinge on right side
+  // Door stop dimensions (must match what's drawn in drawDoor)
+  const doorThickness = inchesToPixels(1.375); // 1-3/8" door thickness
+
+  // Hinge point X - at the edge of the door opening (where the door jamb is)
+  // Left swing: hinge at left edge of opening
+  // Right swing: hinge at right edge of opening
   const hingeX = swing === 'left'
-    ? -doorWidth / 2 - casingWidth
-    : doorWidth / 2 + casingWidth;
-  // Door panel is at OUTSIDE edge of wall (opposite side from where it swings into)
-  // Inward opening: panel at outside edge (-thickness/2), swings into room
-  // Outward opening: panel at inside edge (+thickness/2), swings out of room
+    ? -doorWidth / 2
+    : doorWidth / 2;
+
+  // Hinge Y position - at the wall surface on the swing side
+  // Inward: hinge at outside wall surface (negative Y = top)
+  // Outward: hinge at inside wall surface (positive Y = bottom)
   const hingeY = openDir === 1 ? -thickness / 2 : thickness / 2;
 
-  // Door panel length - extends from casing corner to opposite casing corner
-  const panelLength = doorWidth + casingWidth * 2;
+  // Door panel length - from one inside casing corner to the other
+  const panelLength = doorWidth;
 
   // Door closed position angle (along the wall)
   // Left swing: door extends to the right (angle = 0)
   // Right swing: door extends to the left (angle = π)
   const closedAngle = swing === 'left' ? 0 : Math.PI;
 
-  // Door open position angle (perpendicular to wall, into the room)
-  // The swing angle determines how far the door opens (default 90°)
+  // Door open position angle
+  // Inward: door swings toward negative Y (into the room, which is "up" on screen = negative Y)
+  // Outward: door swings toward positive Y (out of the room, which is "down" on screen = positive Y)
   let openAngle;
   if (swing === 'left') {
+    // Left hinge: closed at 0, swings CCW for inward (-Y), CW for outward (+Y)
     openAngle = openDir === 1 ? -swingAngleRad : swingAngleRad;
   } else {
+    // Right hinge: closed at π, swings CW for inward (toward -Y), CCW for outward (toward +Y)
     openAngle = openDir === 1 ? Math.PI + swingAngleRad : Math.PI - swingAngleRad;
   }
 
@@ -193,38 +200,50 @@ function drawSingleDoor(ctx, doorWidth, thickness, swing, openDirection, swingAn
     ctx.setLineDash([]);
     ctx.strokeStyle = isSelected ? '#00ffaa' : '#000000';
     ctx.lineWidth = (isSelected ? 1.5 : 0.75) * lineScale;
-    const panelThickness = 3; // Door panel thickness in pixels
+    // Use actual door thickness so panel fits in the door stop space when closed
+    const panelThickness = doorThickness;
 
-    // Swing arc (solid thin line like Revit) - radius matches panel length
+    // Swing arc (solid thin line like Revit)
+    // The arc radius is the full door width (from hinge at one jamb edge to the opposite jamb edge)
+    const arcRadius = panelLength;
     ctx.beginPath();
-    ctx.arc(hingeX, hingeY, panelLength, arcStart, arcEnd, counterClockwise);
+    ctx.arc(hingeX, hingeY, arcRadius, arcStart, arcEnd, counterClockwise);
     ctx.stroke();
 
-    // Door panel in open position - edge starts at hinge (casing corner)
+    // Door panel in open position
+    // The panel swings from the hinge (at jamb edge)
+    // Panel outer edge should align with the inside casing corner
     ctx.save();
     ctx.translate(hingeX, hingeY);
     ctx.rotate(openAngle);
-    ctx.strokeRect(0, -panelThickness / 2, panelLength, panelThickness);
+    // Draw panel - offset depends on swing direction and open direction
+    // Left swing + outward: panel needs negative offset
+    // Right swing + inward: panel needs negative offset
+    // Left swing + inward: panel at 0 (no offset)
+    // Right swing + outward: panel at 0 (no offset)
+    const panelYOffset = ((swing === 'left' && openDir === -1) || (swing === 'right' && openDir === 1)) ? -panelThickness : 0;
+    ctx.strokeRect(0, panelYOffset, arcRadius, panelThickness);
     ctx.restore();
   } else {
-    // Non-architectural mode
-    const panelY = openDir === 1 ? thickness / 2 + 2 : -thickness / 2 - 2;
+    // Non-architectural mode - simplified schematic view
+    // Panel shown outside the wall on the swing side
+    const panelY = openDir === 1 ? -thickness / 2 - 5 : thickness / 2 + 2;
     ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.25)' : 'rgba(139,90,43,0.5)';
-    ctx.fillRect(-doorWidth / 2, panelY, doorWidth, 3 * openDir);
+    ctx.fillRect(-doorWidth / 2, panelY, doorWidth, 3);
     ctx.setLineDash([]);
-    ctx.strokeRect(-doorWidth / 2, panelY, doorWidth, 3 * openDir);
+    ctx.strokeRect(-doorWidth / 2, panelY, doorWidth, 3);
 
-    // Swing arc (dashed)
+    // Swing arc (dashed) - use same hingeY as architectural mode
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.arc(hingeX, panelY, doorWidth, arcStart, arcEnd, counterClockwise);
+    ctx.arc(hingeX, hingeY, doorWidth, arcStart, arcEnd, counterClockwise);
     ctx.stroke();
 
     // Line from hinge to open position
     ctx.beginPath();
-    ctx.moveTo(hingeX, panelY);
+    ctx.moveTo(hingeX, hingeY);
     const openX = hingeX + Math.cos(openAngle) * doorWidth;
-    const openY = panelY + Math.sin(openAngle) * doorWidth;
+    const openY = hingeY + Math.sin(openAngle) * doorWidth;
     ctx.lineTo(openX, openY);
     ctx.stroke();
     ctx.setLineDash([]);
@@ -234,12 +253,13 @@ function drawSingleDoor(ctx, doorWidth, thickness, swing, openDirection, swingAn
 function drawDoubleDoor(ctx, doorWidth, thickness, openDirection, swingAngle, isSelected, isFrench, isArchitectural = false, casingWidth = 0, lineScale = 1) {
   const halfWidth = doorWidth / 2;
   const openDir = (openDirection || 'inward') === 'inward' ? 1 : -1;
-  // Door panel is at OUTSIDE edge of wall
-  const hingeY = openDir === 1 ? -thickness / 2 : thickness / 2;
-  const swingAngleDeg = swingAngle || 90;
+  // Hinge Y position - ALWAYS at the outside wall surface
+  const hingeY = -thickness / 2;
+  const swingAngleDeg = swingAngle ?? 90;
   const swingAngleRad = (swingAngleDeg * Math.PI) / 180;
 
-  const leafWidth = halfWidth - 2;
+  // Each leaf spans from hinge to center - no gap
+  const leafWidth = halfWidth;
 
   // Left door: hinge at -halfWidth, swings from angle 0 (pointing right) to open position
   // Right door: hinge at +halfWidth, swings from angle π (pointing left) to open position
@@ -257,7 +277,8 @@ function drawDoubleDoor(ctx, doorWidth, thickness, openDirection, swingAngle, is
   if (isArchitectural) {
     // Revit-style double door: outlined rectangles in open position + swing arcs
     ctx.setLineDash([]);
-    const panelThickness = 3;
+    const doorThickness = inchesToPixels(1.375); // 1-3/8" door thickness
+    const panelThickness = doorThickness;
 
     ctx.strokeStyle = isSelected ? '#00ffaa' : '#000000';
     ctx.lineWidth = (isSelected ? 1.5 : 0.75) * lineScale;
@@ -272,62 +293,64 @@ function drawDoubleDoor(ctx, doorWidth, thickness, openDirection, swingAngle, is
     ctx.arc(halfWidth, hingeY, leafWidth, rightClosedAngle, rightOpenAngle, rightCounterClockwise);
     ctx.stroke();
 
+    // Panel Y offsets - same logic as single door
+    // Left door (left hinge) + outward: needs negative offset
+    // Right door (right hinge) + inward: needs negative offset
+    const leftPanelYOffset = (openDir === -1) ? -panelThickness : 0;
+    const rightPanelYOffset = (openDir === 1) ? -panelThickness : 0;
+
     // Left door panel in open position
     ctx.save();
     ctx.translate(-halfWidth, hingeY);
     ctx.rotate(leftOpenAngle);
-    ctx.strokeRect(0, -panelThickness / 2, leafWidth, panelThickness);
+    ctx.strokeRect(0, leftPanelYOffset, leafWidth, panelThickness);
     ctx.restore();
 
     // Right door panel in open position
     ctx.save();
     ctx.translate(halfWidth, hingeY);
     ctx.rotate(rightOpenAngle);
-    ctx.strokeRect(0, -panelThickness / 2, leafWidth, panelThickness);
+    ctx.strokeRect(0, rightPanelYOffset, leafWidth, panelThickness);
     ctx.restore();
   } else {
     // Non-architectural mode
-    const panelY = openDir === 1 ? thickness / 2 + 2 : -thickness / 2 - 2;
+    const panelY = openDir === 1 ? -thickness / 2 - 5 : thickness / 2 + 2;
 
     // Left door panel
     ctx.fillStyle = isSelected ? 'rgba(0,255,170,0.15)' : 'rgba(139,90,43,0.3)';
-    ctx.fillRect(-halfWidth, panelY, halfWidth - 2, 3 * openDir);
+    ctx.fillRect(-halfWidth, panelY, halfWidth - 2, 3);
     ctx.setLineDash([]);
-    ctx.strokeRect(-halfWidth, panelY, halfWidth - 2, 3 * openDir);
+    ctx.strokeRect(-halfWidth, panelY, halfWidth - 2, 3);
 
     // Right door panel
-    ctx.fillRect(2, panelY, halfWidth - 2, 3 * openDir);
-    ctx.strokeRect(2, panelY, halfWidth - 2, 3 * openDir);
+    ctx.fillRect(2, panelY, halfWidth - 2, 3);
+    ctx.strokeRect(2, panelY, halfWidth - 2, 3);
 
-    // Left door swing arc
+    // Left door swing arc - use hingeY for consistency
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    if (openDir === 1) {
-      ctx.arc(-halfWidth, panelY, halfWidth - 2, -Math.PI / 2, 0);
-    } else {
-      ctx.arc(-halfWidth, panelY, halfWidth - 2, 0, Math.PI / 2);
-    }
+    ctx.arc(-halfWidth, hingeY, leafWidth, leftClosedAngle, leftOpenAngle, leftCounterClockwise);
     ctx.stroke();
 
     // Left door open position line
     ctx.beginPath();
-    ctx.moveTo(-halfWidth, panelY);
-    ctx.lineTo(-halfWidth, panelY - (halfWidth - 2) * openDir);
+    ctx.moveTo(-halfWidth, hingeY);
+    const leftOpenX = -halfWidth + Math.cos(leftOpenAngle) * leafWidth;
+    const leftOpenY = hingeY + Math.sin(leftOpenAngle) * leafWidth;
+    ctx.lineTo(leftOpenX, leftOpenY);
     ctx.stroke();
 
-    // Right door swing arc
+    // Right door swing arc - use hingeY for consistency
     ctx.beginPath();
-    if (openDir === 1) {
-      ctx.arc(halfWidth, panelY, halfWidth - 2, -Math.PI, -Math.PI / 2);
-    } else {
-      ctx.arc(halfWidth, panelY, halfWidth - 2, Math.PI / 2, Math.PI);
-    }
+    ctx.arc(halfWidth, hingeY, leafWidth, rightClosedAngle, rightOpenAngle, rightCounterClockwise);
     ctx.stroke();
 
     // Right door open position line
     ctx.beginPath();
-    ctx.moveTo(halfWidth, panelY);
-    ctx.lineTo(halfWidth, panelY - (halfWidth - 2) * openDir);
+    ctx.moveTo(halfWidth, hingeY);
+    const rightOpenX = halfWidth + Math.cos(rightOpenAngle) * leafWidth;
+    const rightOpenY = hingeY + Math.sin(rightOpenAngle) * leafWidth;
+    ctx.lineTo(rightOpenX, rightOpenY);
     ctx.stroke();
 
     ctx.setLineDash([]);

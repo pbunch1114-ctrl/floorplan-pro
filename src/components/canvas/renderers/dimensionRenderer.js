@@ -104,5 +104,42 @@ export function drawDimension(ctx, dim, isSelected = false, scale = 1, isMobile 
   ctx.fillText(labelText, 0, 0);
 
   ctx.restore();
+
+  // Draw selection handles (endpoint grips) when selected
+  if (isSelected) {
+    const handleSize = 8 * scaleFactor;
+    ctx.fillStyle = '#00ffaa';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2 * scaleFactor;
+
+    // Handle at start point (offset position) - square
+    ctx.fillRect(start.x - handleSize / 2, start.y - handleSize / 2, handleSize, handleSize);
+    ctx.strokeRect(start.x - handleSize / 2, start.y - handleSize / 2, handleSize, handleSize);
+
+    // Handle at end point (offset position) - square
+    ctx.fillRect(end.x - handleSize / 2, end.y - handleSize / 2, handleSize, handleSize);
+    ctx.strokeRect(end.x - handleSize / 2, end.y - handleSize / 2, handleSize, handleSize);
+
+    // Also show handles at the original reference points (where extension lines start)
+    ctx.fillStyle = '#00aaff';
+    ctx.fillRect(dimStart.x - handleSize / 2, dimStart.y - handleSize / 2, handleSize, handleSize);
+    ctx.strokeRect(dimStart.x - handleSize / 2, dimStart.y - handleSize / 2, handleSize, handleSize);
+
+    ctx.fillRect(dimEnd.x - handleSize / 2, dimEnd.y - handleSize / 2, handleSize, handleSize);
+    ctx.strokeRect(dimEnd.x - handleSize / 2, dimEnd.y - handleSize / 2, handleSize, handleSize);
+
+    // Offset grip handle at midpoint of dimension line - diamond shape (for dragging offset)
+    ctx.fillStyle = '#ff9900';
+    ctx.beginPath();
+    const diamondSize = handleSize * 0.8;
+    ctx.moveTo(midX, midY - diamondSize);
+    ctx.lineTo(midX + diamondSize, midY);
+    ctx.lineTo(midX, midY + diamondSize);
+    ctx.lineTo(midX - diamondSize, midY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
   ctx.restore();
 }

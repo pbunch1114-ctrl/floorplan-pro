@@ -8,11 +8,11 @@ import { LINE_TYPES, DIMENSION_STYLES } from '../../constants/styles';
 import { pixelsToFeet, formatMeasurement as formatMeasurementUtil } from '../../utils/measurements';
 import { distance, adjustColor } from '../../utils/geometry';
 import { drawWall } from './renderers/wallRenderer';
-import { drawDoor, drawDoorTemporaryDimensions } from './renderers/doorRenderer';
-import { drawWindow, drawWindowTemporaryDimensions } from './renderers/windowRenderer';
+import { drawDoor } from './renderers/doorRenderer';
+import { drawWindow } from './renderers/windowRenderer';
 import { drawFurniture } from './renderers/furnitureRenderer';
 import { drawRoom } from './renderers/roomRenderer';
-import { drawRoof } from './renderers/roofRenderer';
+import { drawRoof, drawRoofEndpoints } from './renderers/roofRenderer';
 import { drawDimension } from './renderers/dimensionRenderer';
 import { drawFillet } from './renderers/filletRenderer';
 import { drawLine } from './renderers/lineRenderer';
@@ -205,11 +205,8 @@ const FloorPlanCanvas = forwardRef(({
 
         const isSelected = selectedItems.some(s => s.type === 'door' && s.item?.id === door.id);
         drawDoor(ctx, door, wall, isSelected, wallDetailLevel, thinLines);
-
-        // Draw temporary dimensions for selected doors (like Revit)
-        if (isSelected) {
-          drawDoorTemporaryDimensions(ctx, door, wall, units, wallDetailLevel);
-        }
+        // Note: Temporary dimensions for selected doors are rendered via TempDimensionEditor component in App.jsx
+        // This allows them to be editable and positioned as HTML overlays
       });
     }
 
@@ -221,11 +218,7 @@ const FloorPlanCanvas = forwardRef(({
 
         const isSelected = selectedItems.some(s => s.type === 'window' && s.item?.id === window.id);
         drawWindow(ctx, window, wall, isSelected, wallDetailLevel, thinLines);
-
-        // Draw temporary dimensions for selected windows (like Revit)
-        if (isSelected) {
-          drawWindowTemporaryDimensions(ctx, window, wall, units, wallDetailLevel);
-        }
+        // Note: Temporary dimensions for selected windows are rendered via TempDimensionEditor component in App.jsx
       });
     }
 
@@ -234,6 +227,15 @@ const FloorPlanCanvas = forwardRef(({
       activeFloor.furniture.forEach(furniture => {
         const isSelected = selectedItems.some(s => s.type === 'furniture' && s.item?.id === furniture.id);
         drawFurniture(ctx, furniture, isSelected, scale);
+      });
+    }
+
+    // Draw roof endpoints ON TOP of walls (second pass)
+    // This ensures roof corner handles are always visible and clickable
+    if (activeFloor?.roofs) {
+      activeFloor.roofs.forEach(roof => {
+        const isSelected = selectedItems.some(s => s.type === 'roof' && s.item?.id === roof.id);
+        drawRoofEndpoints(ctx, roof, isSelected, formatMeasurement);
       });
     }
 
@@ -254,8 +256,8 @@ const FloorPlanCanvas = forwardRef(({
     }
 
     // Draw text annotations
-    if (layers.annotations?.visible !== false && activeFloor?.annotations) {
-      activeFloor.annotations.forEach(textAnnotation => {
+    if (layers.annotations?.visible !== false && activeFloor?.texts) {
+      activeFloor.texts.forEach(textAnnotation => {
         const isSelected = selectedItems.some(s => s.type === 'text' && s.item?.id === textAnnotation.id);
         drawText(ctx, textAnnotation, isSelected, scale);
       });
@@ -460,8 +462,11 @@ function drawSnapIndicator(ctx, activeSnap, scale) {
   const snapStyles = {
     endpoint: { color: '#00ff00', symbol: 'square', label: 'Endpoint' },
     midpoint: { color: '#ffcc00', symbol: 'triangle', label: 'Midpoint' },
+    'door-midpoint': { color: '#ff9900', symbol: 'diamond', label: 'Door Center' },
+    'window-midpoint': { color: '#00ccff', symbol: 'diamond', label: 'Window Center' },
     perpendicular: { color: '#00ccff', symbol: 'perpendicular', label: 'Perpendicular' },
     nearest: { color: '#ff66ff', symbol: 'x', label: 'Nearest' },
+    'offset-align': { color: '#ff9900', symbol: 'diamond', label: 'Aligned' },
   };
 
   const style = snapStyles[type] || snapStyles.endpoint;
@@ -508,6 +513,16 @@ function drawSnapIndicator(ctx, activeSnap, scale) {
       ctx.moveTo(point.x + size / 2, point.y - size / 2);
       ctx.lineTo(point.x - size / 2, point.y + size / 2);
       ctx.stroke();
+      break;
+
+    case 'diamond':
+      // Diamond shape for door/window midpoints
+      ctx.moveTo(point.x, point.y - size);
+      ctx.lineTo(point.x + size, point.y);
+      ctx.lineTo(point.x, point.y + size);
+      ctx.lineTo(point.x - size, point.y);
+      ctx.closePath();
+      ctx.fill();
       break;
   }
 
