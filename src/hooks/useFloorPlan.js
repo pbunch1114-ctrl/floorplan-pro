@@ -50,6 +50,26 @@ export const useFloorPlan = () => {
   // Clipboard for copy/paste
   const [clipboard, setClipboard] = useState(null);
 
+  // PDF layer state (background reference layer)
+  const [pdfLayer, setPdfLayer] = useState({
+    dataUrl: null,        // PDF rendered as image
+    opacity: 0.7,         // Default 70% opacity
+    scale: null,          // pixels per inch after calibration
+    position: { x: 0, y: 0 },
+    visible: true,
+    width: 0,
+    height: 0,
+    fileName: null,
+  });
+
+  // Annotations state (markup tools for PDF)
+  const [annotations, setAnnotations] = useState([]);
+  const [annotationSettings, setAnnotationSettings] = useState({
+    color: '#ff0000',     // Default red
+    thickness: 4,         // Default 4px
+    aboveFloorPlan: true, // Render above floor plan elements
+  });
+
   // Get active floor
   const activeFloor = useMemo(() => {
     return floors.find(f => f.id === activeFloorId) || floors[0];
@@ -196,7 +216,8 @@ export const useFloorPlan = () => {
 
   // Add furniture
   const addFurniture = useCallback((furniture) => {
-    const newFurniture = { ...furniture, id: furniture.id || generateId() };
+    // Always generate a unique ID - furniture.id from library is just the template type
+    const newFurniture = { ...furniture, id: generateId(), templateId: furniture.id };
     updateActiveFloor(floor => ({ ...floor, furniture: [...floor.furniture, newFurniture] }));
     return newFurniture.id;
   }, [updateActiveFloor]);
@@ -413,13 +434,83 @@ export const useFloorPlan = () => {
     clearHistory();
   }, [setFloors, clearHistory]);
 
+  // Import PDF layer
+  const importPdfLayer = useCallback((pdfData) => {
+    setPdfLayer({
+      dataUrl: pdfData.dataUrl,
+      opacity: 0.7,
+      scale: null,
+      position: { x: 0, y: 0 },
+      visible: true,
+      width: pdfData.width,
+      height: pdfData.height,
+      fileName: pdfData.fileName,
+    });
+  }, []);
+
+  // Update PDF layer
+  const updatePdfLayer = useCallback((updates) => {
+    setPdfLayer(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  // Remove PDF layer
+  const removePdfLayer = useCallback(() => {
+    setPdfLayer({
+      dataUrl: null,
+      opacity: 0.7,
+      scale: null,
+      position: { x: 0, y: 0 },
+      visible: true,
+      width: 0,
+      height: 0,
+      fileName: null,
+    });
+  }, []);
+
+  // Calibrate PDF scale (pixels per inch)
+  const calibratePdfScale = useCallback((pixelsPerInch) => {
+    setPdfLayer(prev => ({ ...prev, scale: pixelsPerInch }));
+  }, []);
+
+  // Add annotation
+  const addAnnotation = useCallback((annotation) => {
+    const newAnnotation = { ...annotation, id: generateId() };
+    setAnnotations(prev => [...prev, newAnnotation]);
+    return newAnnotation.id;
+  }, []);
+
+  // Update annotation
+  const updateAnnotation = useCallback((annotationId, updates) => {
+    setAnnotations(prev =>
+      prev.map(a => a.id === annotationId ? { ...a, ...updates } : a)
+    );
+  }, []);
+
+  // Remove annotation
+  const removeAnnotation = useCallback((annotationId) => {
+    setAnnotations(prev => prev.filter(a => a.id !== annotationId));
+  }, []);
+
+  // Clear all annotations
+  const clearAnnotations = useCallback(() => {
+    setAnnotations([]);
+  }, []);
+
+  // Update annotation settings
+  const updateAnnotationSettings = useCallback((updates) => {
+    setAnnotationSettings(prev => ({ ...prev, ...updates }));
+  }, []);
+
   // Export to JSON
   const exportToJSON = useCallback(() => {
     return JSON.stringify({
       version: '1.0',
       floors,
+      pdfLayer: pdfLayer.dataUrl ? pdfLayer : null,
+      annotations: annotations.length > 0 ? annotations : null,
+      annotationSettings,
     }, null, 2);
-  }, [floors]);
+  }, [floors, pdfLayer, annotations, annotationSettings]);
 
   // Import from JSON
   const importFromJSON = useCallback((json) => {
@@ -430,6 +521,22 @@ export const useFloorPlan = () => {
         setActiveFloorId(data.floors[0]?.id || 'floor-1');
         setSelectedItems([]);
         clearHistory();
+        // Restore PDF layer if present
+        if (data.pdfLayer) {
+          setPdfLayer(data.pdfLayer);
+        } else {
+          removePdfLayer();
+        }
+        // Restore annotations if present
+        if (data.annotations && Array.isArray(data.annotations)) {
+          setAnnotations(data.annotations);
+        } else {
+          setAnnotations([]);
+        }
+        // Restore annotation settings if present
+        if (data.annotationSettings) {
+          setAnnotationSettings(prev => ({ ...prev, ...data.annotationSettings }));
+        }
         return true;
       }
       return false;
@@ -437,7 +544,7 @@ export const useFloorPlan = () => {
       console.error('Failed to import JSON:', e);
       return false;
     }
-  }, [setFloors, clearHistory]);
+  }, [setFloors, clearHistory, removePdfLayer]);
 
   return {
     // State
@@ -446,6 +553,7 @@ export const useFloorPlan = () => {
     activeFloor,
     selectedItems,
     clipboard,
+    pdfLayer,
 
     // Floor management
     setActiveFloorId,
@@ -508,6 +616,21 @@ export const useFloorPlan = () => {
     redo,
     canUndo,
     canRedo,
+
+    // PDF layer operations
+    importPdfLayer,
+    updatePdfLayer,
+    removePdfLayer,
+    calibratePdfScale,
+
+    // Annotation operations
+    annotations,
+    annotationSettings,
+    addAnnotation,
+    updateAnnotation,
+    removeAnnotation,
+    clearAnnotations,
+    updateAnnotationSettings,
   };
 };
 

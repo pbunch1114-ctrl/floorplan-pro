@@ -15,12 +15,17 @@ const MobileMenu = ({
   onShowLayers,
   onShow3D,
   onShowSettings,
+  onShowPdf,
+  onShowMaterials,
+  onExport,
   onSave,
   onLoad,
   onNew,
+  onRecent,
   show3D,
   showLayersPanel,
   showSheetsPanel,
+  hasPdf,
 }) => {
   if (!isOpen) return null;
 
@@ -125,6 +130,17 @@ const MobileMenu = ({
             label="Settings"
             onClick={() => handleAction(onShowSettings)}
           />
+          <MenuButton
+            icon="📄"
+            label={hasPdf ? "PDF" : "Import PDF"}
+            onClick={() => handleAction(onShowPdf)}
+            active={hasPdf}
+          />
+          <MenuButton
+            icon="🧮"
+            label="Materials"
+            onClick={() => handleAction(onShowMaterials)}
+          />
         </div>
 
         {/* File Operations */}
@@ -142,7 +158,7 @@ const MobileMenu = ({
           }}>
             File
           </span>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
             <MenuButton
               icon="📄"
               label="New"
@@ -152,6 +168,16 @@ const MobileMenu = ({
               icon="💾"
               label="Save"
               onClick={() => handleAction(onSave)}
+            />
+            <MenuButton
+              icon="🕐"
+              label="Recent"
+              onClick={() => handleAction(onRecent)}
+            />
+            <MenuButton
+              icon="📤"
+              label="Export"
+              onClick={() => handleAction(onExport)}
             />
             <label style={{
               padding: '12px',

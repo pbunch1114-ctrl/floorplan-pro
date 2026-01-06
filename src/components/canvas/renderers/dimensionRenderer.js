@@ -2,12 +2,13 @@
  * Dimension Renderer - Draws dimension lines with architectural styling
  */
 
-import { DIMENSION_STYLES } from '../../../constants/styles';
+import { DIMENSION_STYLES, FONT_STYLES } from '../../../constants/styles';
 import { pixelsToFeet } from '../../../utils/measurements';
 
-export function drawDimension(ctx, dim, isSelected = false, scale = 1, isMobile = false, formatMeasurement = (v) => `${v}'`, wallDetailLevel = 'simple') {
+export function drawDimension(ctx, dim, isSelected = false, scale = 1, isMobile = false, formatMeasurement = (v) => `${v}'`, wallDetailLevel = 'simple', fontStyle = 'modern') {
   const style = DIMENSION_STYLES[dim.style] || DIMENSION_STYLES.standard;
   const isArchitectural = wallDetailLevel === 'architectural';
+  const font = FONT_STYLES[fontStyle] || FONT_STYLES.modern;
 
   // Auto-scale dimensions to stay readable regardless of zoom
   const minScaleFactor = isMobile ? 1.5 : 1.0;
@@ -80,7 +81,12 @@ export function drawDimension(ctx, dim, isSelected = false, scale = 1, isMobile 
   const midX = (start.x + end.x) / 2;
   const midY = (start.y + end.y) / 2;
   const lengthFeet = pixelsToFeet(length);
-  const labelText = dim.label || formatMeasurement(lengthFeet);
+  let labelText = dim.label || formatMeasurement(lengthFeet);
+
+  // Apply text transform from font style
+  if (font.textTransform === 'uppercase') {
+    labelText = labelText.toUpperCase();
+  }
 
   ctx.save();
   ctx.translate(midX, midY);
@@ -91,9 +97,21 @@ export function drawDimension(ctx, dim, isSelected = false, scale = 1, isMobile 
   if (textAngle < -Math.PI / 2) textAngle += Math.PI;
   ctx.rotate(textAngle);
 
+  // Build font string from font style
+  const fontWeight = font.fontWeight || 'bold';
+  const fontFamily = font.fontFamily || '"SF Mono", monospace';
+  ctx.font = `${fontWeight} ${scaledFontSize}px ${fontFamily}`;
+
+  // Apply letter spacing if supported (canvas doesn't natively support it, so we'll handle it manually for City Blueprint)
+  const letterSpacing = font.letterSpacing ? parseFloat(font.letterSpacing) * scaledFontSize : 0;
+
+  // Measure text width (accounting for letter spacing)
+  let textWidth = ctx.measureText(labelText).width;
+  if (letterSpacing > 0) {
+    textWidth += letterSpacing * (labelText.length - 1);
+  }
+
   // Background for text - white background for architectural mode
-  ctx.font = `bold ${scaledFontSize}px "SF Mono", monospace`;
-  const textWidth = ctx.measureText(labelText).width;
   ctx.fillStyle = isArchitectural ? 'rgba(255,255,255,0.95)' : 'rgba(8,12,16,0.9)';
   ctx.fillRect(-textWidth / 2 - 6 * scaleFactor, -scaledFontSize / 2 - 3 * scaleFactor, textWidth + 12 * scaleFactor, scaledFontSize + 6 * scaleFactor);
 
@@ -101,7 +119,20 @@ export function drawDimension(ctx, dim, isSelected = false, scale = 1, isMobile 
   ctx.fillStyle = lineColor;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(labelText, 0, 0);
+
+  // Draw text with letter spacing if needed
+  if (letterSpacing > 0) {
+    // Draw each character with spacing
+    let currentX = -textWidth / 2;
+    for (let i = 0; i < labelText.length; i++) {
+      const char = labelText[i];
+      ctx.textAlign = 'left';
+      ctx.fillText(char, currentX, 0);
+      currentX += ctx.measureText(char).width + letterSpacing;
+    }
+  } else {
+    ctx.fillText(labelText, 0, 0);
+  }
 
   ctx.restore();
 

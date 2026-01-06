@@ -2,13 +2,15 @@
  * Line Renderer - Draws annotation lines
  */
 
-export function drawLine(ctx, line, isSelected = false) {
-  const { start, end, lineType = 'solid', color = '#00c8ff', lineWidth = 1 } = line;
+export function drawLine(ctx, line, isSelected = false, layerColor = null) {
+  const { start, end, lineType = 'solid', color, lineWidth = 1 } = line;
+  // Use item color if set, otherwise use layer color, otherwise use default
+  const drawColor = color || layerColor || '#00c8ff';
 
   ctx.save();
 
   // Set line style
-  ctx.strokeStyle = isSelected ? '#00ffaa' : color;
+  ctx.strokeStyle = isSelected ? '#00ffaa' : drawColor;
   ctx.lineWidth = isSelected ? lineWidth + 1 : lineWidth;
   ctx.lineCap = 'round';
 

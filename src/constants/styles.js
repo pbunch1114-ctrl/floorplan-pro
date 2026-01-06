@@ -1,5 +1,38 @@
 // Text, dimension, and visual styles
 
+// Font styles for dimensions and text annotations
+export const FONT_STYLES = {
+  modern: {
+    name: 'Modern',
+    fontFamily: '"SF Mono", "Consolas", monospace',
+    letterSpacing: '0',
+    fontWeight: 'bold',
+    textTransform: 'none',
+  },
+  cityBlueprint: {
+    name: 'City Blueprint',
+    fontFamily: '"Courier New", "Lucida Console", monospace',
+    letterSpacing: '0.15em',
+    fontWeight: 'normal',
+    textTransform: 'uppercase',
+    // City Blueprint style characteristics: uppercase, spaced, technical look
+  },
+  architectural: {
+    name: 'Architectural',
+    fontFamily: '"Arial Narrow", "Helvetica", sans-serif',
+    letterSpacing: '0.05em',
+    fontWeight: 'normal',
+    textTransform: 'uppercase',
+  },
+  handLettered: {
+    name: 'Hand Lettered',
+    fontFamily: '"Comic Sans MS", "Segoe Script", cursive',
+    letterSpacing: '0.02em',
+    fontWeight: 'normal',
+    textTransform: 'none',
+  },
+};
+
 export const TEXT_STYLES = {
   label: { name: 'Label', fontSize: 14, fontWeight: 'bold', color: '#ffffff', background: 'rgba(0,0,0,0.6)' },
   note: { name: 'Note', fontSize: 11, fontWeight: 'normal', color: '#ffaa00', background: 'rgba(0,0,0,0.4)' },

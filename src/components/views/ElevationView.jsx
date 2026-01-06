@@ -223,15 +223,23 @@ const ElevationView = ({
       return;
     }
 
-    // Calculate bounds
+    // Calculate bounds along the elevation view axis
     let minPos = Infinity, maxPos = -Infinity;
+    // Also track perpendicular bounds (for checking if roofs are over these walls)
+    let minPerpendicular = Infinity, maxPerpendicular = -Infinity;
     elevationWalls.forEach(wall => {
       if (isHorizontalElevation) {
+        // For N/S elevations, X is the view axis, Y is perpendicular
         minPos = Math.min(minPos, wall.start.x, wall.end.x);
         maxPos = Math.max(maxPos, wall.start.x, wall.end.x);
+        minPerpendicular = Math.min(minPerpendicular, wall.start.y, wall.end.y);
+        maxPerpendicular = Math.max(maxPerpendicular, wall.start.y, wall.end.y);
       } else {
+        // For E/W elevations, Y is the view axis, X is perpendicular
         minPos = Math.min(minPos, wall.start.y, wall.end.y);
         maxPos = Math.max(maxPos, wall.start.y, wall.end.y);
+        minPerpendicular = Math.min(minPerpendicular, wall.start.x, wall.end.x);
+        maxPerpendicular = Math.max(maxPerpendicular, wall.start.x, wall.end.x);
       }
     });
 
@@ -241,17 +249,47 @@ const ElevationView = ({
     const maxWallHeightInches = Math.max(...elevationWalls.map(w => w.height || DEFAULT_WALL_HEIGHT));
     const wallHeight = maxWallHeightInches * (GRID_SIZE / 6);
 
-    // Roof height
+    // Helper to get roof bounds from either legacy format or points array
+    const getRoofBounds = (roof) => {
+      if (roof.points && roof.points.length >= 3) {
+        const xs = roof.points.map(p => p.x);
+        const ys = roof.points.map(p => p.y);
+        return {
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
+        };
+      }
+      // Legacy format
+      return { x: roof.x, y: roof.y, width: roof.width, height: roof.height };
+    };
+
+    // Roof height - use a generous tolerance to include roofs near the walls
     const roofs = activeFloor?.roofs || [];
     let maxRoofHeight = 0;
+    const roofTolerance = 100; // pixels tolerance for roof overlap check
+
     roofs.forEach(roof => {
+      const bounds = getRoofBounds(roof);
       const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
-      const roofInView = isHorizontalElevation
-        ? (roof.x < maxPos && roof.x + roof.width > minPos)
-        : (roof.y < maxPos && roof.y + roof.height > minPos);
+
+      // Check if roof overlaps with elevation view in both axes
+      let roofInView;
+      if (isHorizontalElevation) {
+        // For N/S elevations: check X overlap with wall X range, and Y overlap with wall Y
+        const xOverlap = bounds.x < maxPos + roofTolerance && bounds.x + bounds.width > minPos - roofTolerance;
+        const yOverlap = bounds.y < maxPerpendicular + roofTolerance && bounds.y + bounds.height > minPerpendicular - roofTolerance;
+        roofInView = xOverlap && yOverlap;
+      } else {
+        // For E/W elevations: check Y overlap with wall Y range, and X overlap with wall X
+        const yOverlap = bounds.y < maxPos + roofTolerance && bounds.y + bounds.height > minPos - roofTolerance;
+        const xOverlap = bounds.x < maxPerpendicular + roofTolerance && bounds.x + bounds.width > minPerpendicular - roofTolerance;
+        roofInView = xOverlap && yOverlap;
+      }
 
       if (roofInView) {
-        const roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? roof.height : roof.width;
+        const roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? bounds.height : bounds.width;
         const roofRise = (roofSpanForPitch / 2) * (pitchDef.rise / pitchDef.run);
         maxRoofHeight = Math.max(maxRoofHeight, roofRise);
       }
@@ -348,35 +386,218 @@ const ElevationView = ({
       // Draw doors
       const wallDoors = (activeFloor?.doors || []).filter(door => door.wallId === wall.id);
       wallDoors.forEach(door => {
-        const defaultDoorWidth = 36 * (GRID_SIZE / 6);
-        const doorHeightGrid = 84 * (GRID_SIZE / 6);
+        // Door dimensions are stored in inches - convert to pixels then scale
+        const doorWidthInches = door.width || 36;
+        const doorHeightInches = 84; // Standard door height
+        const doorType = door.type || 'single';
 
-        const doorWidthPx = (door.width || defaultDoorWidth) * elevScale;
-        const doorHeightPx = doorHeightGrid * elevScale;
+        // Convert inches to pixels (GRID_SIZE / 6 = pixels per inch)
+        const doorWidthPx = doorWidthInches * (GRID_SIZE / 6) * elevScale;
+        const doorHeightPx = doorHeightInches * (GRID_SIZE / 6) * elevScale;
+
         const doorPosRatio = door.position || 0.5;
-        const doorX = wallX + doorPosRatio * wallW - doorWidthPx / 2;
+        // For south and east elevations, mirror the position (viewing from outside)
+        const shouldMirror = activeElevation === 'south' || activeElevation === 'east';
+        const adjustedPosRatio = shouldMirror ? (1 - doorPosRatio) : doorPosRatio;
+        const doorX = wallX + adjustedPosRatio * wallW - doorWidthPx / 2;
         const doorY = offsetY - doorHeightPx;
 
-        if (isColorMode) {
-          ctx.fillStyle = '#8b4513';
-          ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
+        // Draw door based on type
+        if (doorType === 'double' || doorType === 'french') {
+          // Double door - single frame with two panels meeting in the middle
+          const panelWidth = doorWidthPx / 2;
 
-          ctx.strokeStyle = '#5d3a1a';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(doorX + 4, doorY + 4, doorWidthPx - 8, doorHeightPx - 8);
+          if (isColorMode) {
+            // Outer frame (single unit)
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
 
-          // Door handle
-          ctx.fillStyle = '#c0a000';
-          ctx.beginPath();
-          ctx.arc(doorX + doorWidthPx - 12, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
-          ctx.fill();
-        } else {
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = isSketchyMode ? 1.5 : 2;
-          if (isSketchyMode) {
-            drawSketchyRect(ctx, doorX, doorY, doorWidthPx, doorHeightPx);
+            // Center seam where the two doors meet
+            ctx.strokeStyle = '#5d3a1a';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(doorX + panelWidth, doorY);
+            ctx.lineTo(doorX + panelWidth, doorY + doorHeightPx);
+            ctx.stroke();
+
+            // Left panel inset
+            ctx.strokeRect(doorX + 4, doorY + 4, panelWidth - 8, doorHeightPx - 8);
+
+            // Right panel inset
+            ctx.strokeRect(doorX + panelWidth + 4, doorY + 4, panelWidth - 8, doorHeightPx - 8);
+
+            // Door handles (on inside edges near center seam)
+            ctx.fillStyle = '#c0a000';
+            ctx.beginPath();
+            ctx.arc(doorX + panelWidth - 10, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(doorX + panelWidth + 10, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // French door glass panels
+            if (doorType === 'french') {
+              ctx.fillStyle = 'rgba(135, 206, 250, 0.3)';
+              ctx.fillRect(doorX + 8, doorY + 8, panelWidth - 16, doorHeightPx - 16);
+              ctx.fillRect(doorX + panelWidth + 8, doorY + 8, panelWidth - 16, doorHeightPx - 16);
+              // Muntins
+              ctx.strokeStyle = '#5d3a1a';
+              ctx.lineWidth = 1;
+              // Left panel muntins
+              ctx.beginPath();
+              ctx.moveTo(doorX + panelWidth / 2, doorY + 8);
+              ctx.lineTo(doorX + panelWidth / 2, doorY + doorHeightPx - 8);
+              ctx.moveTo(doorX + 8, doorY + doorHeightPx / 2);
+              ctx.lineTo(doorX + panelWidth - 8, doorY + doorHeightPx / 2);
+              ctx.stroke();
+              // Right panel muntins
+              ctx.beginPath();
+              ctx.moveTo(doorX + panelWidth * 1.5, doorY + 8);
+              ctx.lineTo(doorX + panelWidth * 1.5, doorY + doorHeightPx - 8);
+              ctx.moveTo(doorX + panelWidth + 8, doorY + doorHeightPx / 2);
+              ctx.lineTo(doorX + doorWidthPx - 8, doorY + doorHeightPx / 2);
+              ctx.stroke();
+            }
           } else {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+            // Outer frame
+            if (isSketchyMode) {
+              drawSketchyRect(ctx, doorX, doorY, doorWidthPx, doorHeightPx);
+              // Center seam
+              drawSketchyLine(ctx, doorX + panelWidth, doorY, doorX + panelWidth, doorY + doorHeightPx);
+            } else {
+              ctx.strokeRect(doorX, doorY, doorWidthPx, doorHeightPx);
+              // Center seam
+              ctx.beginPath();
+              ctx.moveTo(doorX + panelWidth, doorY);
+              ctx.lineTo(doorX + panelWidth, doorY + doorHeightPx);
+              ctx.stroke();
+            }
+          }
+        } else if (doorType === 'sliding') {
+          // Sliding door - two glass panels, one behind the other
+          const panelWidth = doorWidthPx / 2;
+
+          if (isColorMode) {
+            // Back panel (full height glass)
+            ctx.fillStyle = 'rgba(135, 206, 250, 0.4)';
+            ctx.fillRect(doorX, doorY, panelWidth, doorHeightPx);
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(doorX, doorY, panelWidth, doorHeightPx);
+
+            // Front panel (overlapping)
+            ctx.fillStyle = 'rgba(135, 206, 250, 0.5)';
+            ctx.fillRect(doorX + panelWidth, doorY, panelWidth, doorHeightPx);
+            ctx.strokeStyle = '#666';
+            ctx.strokeRect(doorX + panelWidth, doorY, panelWidth, doorHeightPx);
+
+            // Frame divider
+            ctx.fillStyle = '#555';
+            ctx.fillRect(doorX + panelWidth - 3, doorY, 6, doorHeightPx);
+          } else {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+            if (isSketchyMode) {
+              drawSketchyRect(ctx, doorX, doorY, panelWidth, doorHeightPx);
+              drawSketchyRect(ctx, doorX + panelWidth, doorY, panelWidth, doorHeightPx);
+            } else {
+              ctx.strokeRect(doorX, doorY, panelWidth, doorHeightPx);
+              ctx.strokeRect(doorX + panelWidth, doorY, panelWidth, doorHeightPx);
+            }
+          }
+        } else if (doorType === 'garage') {
+          // Garage door - sectional with windows at top
+          const sectionHeight = doorHeightPx / 4;
+
+          if (isColorMode) {
+            ctx.fillStyle = '#ddd';
+            ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 2;
             ctx.strokeRect(doorX, doorY, doorWidthPx, doorHeightPx);
+
+            // Horizontal section lines
+            ctx.lineWidth = 1;
+            for (let i = 1; i < 4; i++) {
+              ctx.beginPath();
+              ctx.moveTo(doorX, doorY + sectionHeight * i);
+              ctx.lineTo(doorX + doorWidthPx, doorY + sectionHeight * i);
+              ctx.stroke();
+            }
+
+            // Windows in top section
+            const windowWidth = doorWidthPx / 4 - 8;
+            ctx.fillStyle = 'rgba(135, 206, 250, 0.4)';
+            for (let i = 0; i < 4; i++) {
+              ctx.fillRect(doorX + 4 + i * (doorWidthPx / 4), doorY + 4, windowWidth, sectionHeight - 8);
+              ctx.strokeRect(doorX + 4 + i * (doorWidthPx / 4), doorY + 4, windowWidth, sectionHeight - 8);
+            }
+          } else {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+            if (isSketchyMode) {
+              drawSketchyRect(ctx, doorX, doorY, doorWidthPx, doorHeightPx);
+            } else {
+              ctx.strokeRect(doorX, doorY, doorWidthPx, doorHeightPx);
+            }
+            // Section lines
+            ctx.lineWidth = 1;
+            for (let i = 1; i < 4; i++) {
+              ctx.beginPath();
+              ctx.moveTo(doorX, doorY + sectionHeight * i);
+              ctx.lineTo(doorX + doorWidthPx, doorY + sectionHeight * i);
+              ctx.stroke();
+            }
+          }
+        } else if (doorType === 'bifold') {
+          // Bifold door - multiple panels
+          const panelCount = 4;
+          const panelWidth = doorWidthPx / panelCount;
+
+          if (isColorMode) {
+            for (let i = 0; i < panelCount; i++) {
+              ctx.fillStyle = '#8b4513';
+              ctx.fillRect(doorX + i * panelWidth + 1, doorY, panelWidth - 2, doorHeightPx);
+              ctx.strokeStyle = '#5d3a1a';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(doorX + i * panelWidth + 4, doorY + 4, panelWidth - 8, doorHeightPx - 8);
+            }
+          } else {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+            for (let i = 0; i < panelCount; i++) {
+              if (isSketchyMode) {
+                drawSketchyRect(ctx, doorX + i * panelWidth + 1, doorY, panelWidth - 2, doorHeightPx);
+              } else {
+                ctx.strokeRect(doorX + i * panelWidth + 1, doorY, panelWidth - 2, doorHeightPx);
+              }
+            }
+          }
+        } else {
+          // Single door (default) - includes 'single', 'barn', 'pocket'
+          if (isColorMode) {
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(doorX, doorY, doorWidthPx, doorHeightPx);
+
+            ctx.strokeStyle = '#5d3a1a';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(doorX + 4, doorY + 4, doorWidthPx - 8, doorHeightPx - 8);
+
+            // Door handle
+            ctx.fillStyle = '#c0a000';
+            ctx.beginPath();
+            ctx.arc(doorX + doorWidthPx - 12, doorY + doorHeightPx / 2, 4, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = isSketchyMode ? 1.5 : 2;
+            if (isSketchyMode) {
+              drawSketchyRect(ctx, doorX, doorY, doorWidthPx, doorHeightPx);
+            } else {
+              ctx.strokeRect(doorX, doorY, doorWidthPx, doorHeightPx);
+            }
           }
         }
       });
@@ -384,15 +605,21 @@ const ElevationView = ({
       // Draw windows
       const wallWindows = (activeFloor?.windows || []).filter(win => win.wallId === wall.id);
       wallWindows.forEach(win => {
-        const defaultWinSize = 48 * (GRID_SIZE / 6);
-        const defaultSillHeight = 36 * (GRID_SIZE / 6);
+        // Window dimensions are stored in inches - convert to pixels then scale
+        const winWidthInches = win.width || 48;
+        const winHeightInches = win.height || 48;
+        const sillHeightInches = win.sillHeight || 36;
 
-        const winWidthPx = (win.width || defaultWinSize) * elevScale;
-        const winHeightPx = (win.height || defaultWinSize) * elevScale;
-        const sillHeightPx = (win.sillHeight || defaultSillHeight) * elevScale;
+        // Convert inches to pixels (GRID_SIZE / 6 = pixels per inch)
+        const winWidthPx = winWidthInches * (GRID_SIZE / 6) * elevScale;
+        const winHeightPx = winHeightInches * (GRID_SIZE / 6) * elevScale;
+        const sillHeightPx = sillHeightInches * (GRID_SIZE / 6) * elevScale;
 
         const winPosRatio = win.position || 0.5;
-        const winX = wallX + winPosRatio * wallW - winWidthPx / 2;
+        // For south and east elevations, mirror the position (viewing from outside)
+        const shouldMirror = activeElevation === 'south' || activeElevation === 'east';
+        const adjustedPosRatio = shouldMirror ? (1 - winPosRatio) : winPosRatio;
+        const winX = wallX + adjustedPosRatio * wallW - winWidthPx / 2;
         const winY = offsetY - sillHeightPx - winHeightPx;
 
         if (isColorMode) {
@@ -445,23 +672,41 @@ const ElevationView = ({
 
     // Draw roofs
     roofs.forEach(roof => {
+      const bounds = getRoofBounds(roof);
       const pitchDef = ROOF_PITCHES[roof.pitch] || ROOF_PITCHES['6:12'];
 
       const viewingGableEnd = (isHorizontalElevation && roof.ridgeDirection === 'vertical') ||
                               (!isHorizontalElevation && roof.ridgeDirection === 'horizontal');
 
-      let roofViewWidth, roofStartPos;
+      // Check if roof overlaps with elevation view in both axes
+      let roofInView;
       if (isHorizontalElevation) {
-        roofViewWidth = roof.width;
-        roofStartPos = roof.x;
+        const xOverlap = bounds.x < maxPos + roofTolerance && bounds.x + bounds.width > minPos - roofTolerance;
+        const yOverlap = bounds.y < maxPerpendicular + roofTolerance && bounds.y + bounds.height > minPerpendicular - roofTolerance;
+        roofInView = xOverlap && yOverlap;
       } else {
-        roofViewWidth = roof.height;
-        roofStartPos = roof.y;
+        const yOverlap = bounds.y < maxPos + roofTolerance && bounds.y + bounds.height > minPos - roofTolerance;
+        const xOverlap = bounds.x < maxPerpendicular + roofTolerance && bounds.x + bounds.width > minPerpendicular - roofTolerance;
+        roofInView = xOverlap && yOverlap;
       }
 
-      const roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? roof.height : roof.width;
+      if (!roofInView) return; // Skip roofs not in this elevation's view
+
+      // Roof coordinates are in pixels (canvas coordinates) just like walls
+      let roofViewWidth, roofStartPos;
+      if (isHorizontalElevation) {
+        roofViewWidth = bounds.width;
+        roofStartPos = bounds.x;
+      } else {
+        roofViewWidth = bounds.height;
+        roofStartPos = bounds.y;
+      }
+
+      const roofSpanForPitch = roof.ridgeDirection === 'horizontal' ? bounds.height : bounds.width;
       const roofRise = (roofSpanForPitch / 2) * (pitchDef.rise / pitchDef.run);
 
+      // Position roof relative to the elevation's coordinate space
+      // roofStartPos and minPos are both in canvas pixels, so their difference gives the offset
       const roofX = offsetX + (roofStartPos - minPos) * elevScale;
       const roofW = roofViewWidth * elevScale;
       const roofH = roofRise * elevScale;

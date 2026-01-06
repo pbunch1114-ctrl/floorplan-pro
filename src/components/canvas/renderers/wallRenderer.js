@@ -17,9 +17,21 @@ export function drawWall(ctx, wall, options = {}) {
     scale = 1,
     isMobile = false,
     showGrips = false,
+    showTempDimensions = true,
     isLocked = false,
     formatMeasurement = (v) => `${v}'`,
+    layerColor = null,
   } = options;
+
+  // Determine wall color based on layer color or wall type defaults
+  const defaultColor = wall.type?.includes('exterior') ? '#f0f8ff' : '#c0d0e0';
+  const wallColor = layerColor || defaultColor;
+
+  // Check if in architectural mode
+  const isArchitectural = wallDetailLevel === 'architectural' ||
+                          wallDetailLevel === 'architectural-labels-only' ||
+                          wallDetailLevel === 'standard' ||
+                          wallDetailLevel === 'detailed';
 
   // Convert wall thickness from inches to pixels
   const thicknessInches = WALL_THICKNESS_OPTIONS[wall.type]?.thickness || 8;
@@ -52,7 +64,7 @@ export function drawWall(ctx, wall, options = {}) {
     ctx.lineTo(wallLength, 0);
     ctx.stroke();
 
-    ctx.strokeStyle = isSelected ? '#00ffaa' : (wall.type?.includes('exterior') ? '#f0f8ff' : '#c0d0e0');
+    ctx.strokeStyle = isSelected ? '#00ffaa' : wallColor;
     ctx.lineWidth = thickness;
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -248,36 +260,38 @@ export function drawWall(ctx, wall, options = {}) {
   // For architectural-labels-only mode, skip to labels and grips
   const isLabelsOnly = wallDetailLevel === 'architectural-labels-only';
 
-  // Measurement label
-  const length = distance(wall.start, wall.end);
+  // Calculate midpoint (needed for both labels and grips)
   const midX = (wall.start.x + wall.end.x) / 2;
   const midY = (wall.start.y + wall.end.y) / 2;
 
-  // Auto-scale font size for mobile when zoomed out
-  const minScaleFactor = isMobile ? 1.3 : 1.0;
-  const labelScaleFactor = Math.max(minScaleFactor, 1 / scale);
-  const labelFontSize = Math.round(10 * labelScaleFactor);
+  // Measurement label (only show if showTempDimensions is enabled)
+  if (showTempDimensions) {
+    const length = distance(wall.start, wall.end);
 
-  const isArchitectural = wallDetailLevel === 'architectural' || isLabelsOnly;
+    // Auto-scale font size for mobile when zoomed out
+    const minScaleFactor = isMobile ? 1.3 : 1.0;
+    const labelScaleFactor = Math.max(minScaleFactor, 1 / scale);
+    const labelFontSize = Math.round(10 * labelScaleFactor);
 
-  ctx.save();
-  ctx.translate(midX, midY);
-  ctx.rotate(angle);
+    ctx.save();
+    ctx.translate(midX, midY);
+    ctx.rotate(angle);
 
-  // Background for better readability
-  const measureText = `${formatMeasurement(pixelsToFeet(length))} (h:${formatMeasurement(inchesToFeet(wall.height || DEFAULT_WALL_HEIGHT))})`;
-  ctx.font = `${labelFontSize}px "SF Mono", monospace`;
-  const textWidth = ctx.measureText(measureText).width;
+    // Background for better readability
+    const measureText = `${formatMeasurement(pixelsToFeet(length))} (h:${formatMeasurement(inchesToFeet(wall.height || DEFAULT_WALL_HEIGHT))})`;
+    ctx.font = `${labelFontSize}px "SF Mono", monospace`;
+    const textWidth = ctx.measureText(measureText).width;
 
-  // Use white background with black text for architectural mode
-  ctx.fillStyle = isArchitectural ? 'rgba(255,255,255,0.9)' : 'rgba(8,12,16,0.8)';
-  ctx.fillRect(-textWidth / 2 - 4 * labelScaleFactor, -thickness - 4 - labelFontSize, textWidth + 8 * labelScaleFactor, labelFontSize + 4 * labelScaleFactor);
+    // Use white background with black text for architectural mode
+    ctx.fillStyle = isArchitectural ? 'rgba(255,255,255,0.9)' : 'rgba(8,12,16,0.8)';
+    ctx.fillRect(-textWidth / 2 - 4 * labelScaleFactor, -thickness - 4 - labelFontSize, textWidth + 8 * labelScaleFactor, labelFontSize + 4 * labelScaleFactor);
 
-  ctx.fillStyle = isArchitectural ? '#000000' : '#00c8ff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(measureText, 0, -thickness - 4);
-  ctx.restore();
+    ctx.fillStyle = isArchitectural ? '#000000' : '#00c8ff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(measureText, 0, -thickness - 4);
+    ctx.restore();
+  }
 
   // Draw grips for selected wall or when in select mode
   if (showGrips && !isLocked) {

@@ -35,11 +35,25 @@ const VIEW_TOOLS = [
   { id: 'elevations', icon: '🏢', label: 'Elevations' },
 ];
 
+const MARKUP_TOOLS = [
+  { id: 'annotation-select', icon: '↖️', label: 'Select' },
+  { id: 'annotation-arrow', icon: '➔', label: 'Arrow' },
+  { id: 'annotation-freehand', icon: '✏️', label: 'Freehand' },
+  { id: 'annotation-circle', icon: '⭕', label: 'Circle' },
+  { id: 'annotation-rectangle', icon: '⬜', label: 'Rectangle' },
+  { id: 'annotation-cloud', icon: '☁️', label: 'Cloud' },
+  { id: 'annotation-stamp', icon: '📌', label: 'Stamp', isAction: true },
+  { id: 'annotation-callout', icon: '①', label: 'Callout' },
+  { id: 'callout-notes', icon: '📝', label: 'Notes', isAction: true },
+  { id: 'markup-settings', icon: '🎨', label: 'Settings', isAction: true },
+];
+
 const TOOL_TABS = [
   { id: 'draw', label: 'Draw', tools: DRAW_TOOLS },
   { id: 'modify', label: 'Modify', tools: MODIFY_TOOLS },
   { id: 'annotate', label: 'Annotate', tools: ANNOTATE_TOOLS },
   { id: 'view', label: 'View', tools: VIEW_TOOLS },
+  { id: 'markup', label: 'Markup', tools: MARKUP_TOOLS },
 ];
 
 /**
@@ -50,10 +64,28 @@ export const Toolbar = ({
   onToolChange,
   toolTab,
   onToolTabChange,
+  onShowStamps,
+  onShowAnnotationSettings,
+  onShowCalloutNotes,
   isMobile = false,
   style = {},
 }) => {
   const currentTabTools = TOOL_TABS.find(t => t.id === toolTab)?.tools || DRAW_TOOLS;
+
+  const handleToolClick = (t) => {
+    if (t.isAction) {
+      // Handle action buttons
+      if (t.id === 'annotation-stamp' && onShowStamps) {
+        onShowStamps();
+      } else if (t.id === 'markup-settings' && onShowAnnotationSettings) {
+        onShowAnnotationSettings();
+      } else if (t.id === 'callout-notes' && onShowCalloutNotes) {
+        onShowCalloutNotes();
+      }
+    } else {
+      onToolChange(t.id);
+    }
+  };
 
   return (
     <div
@@ -106,8 +138,8 @@ export const Toolbar = ({
             key={t.id}
             icon={t.icon}
             label={t.label}
-            active={tool === t.id}
-            onClick={() => onToolChange(t.id)}
+            active={!t.isAction && tool === t.id}
+            onClick={() => handleToolClick(t)}
             isMobile={isMobile}
           />
         ))}
@@ -134,11 +166,16 @@ export const MobileToolbar = ({
   onTabChange,
   onShowLayers,
   onShowSettings,
+  onShowFurniture,
   onShow3D,
   onShowElevations,
+  onShowStamps,
+  onShowAnnotationSettings,
+  onShowCalloutNotes,
   onZoomIn,
   onZoomOut,
   onResetView,
+  panelOpen = false, // Hide floating buttons when a panel is open
   style = {},
 }) => {
   const [mobileTab, setMobileTab] = React.useState(activeTab);
@@ -173,6 +210,7 @@ export const MobileToolbar = ({
     { id: 'window', icon: '⊞', label: 'Window' },
     { id: 'room', icon: '⬚', label: 'Room' },
     { id: 'roof', icon: '⌂', label: 'Roof' },
+    { id: 'furniture', icon: '🛋', label: 'Furniture', isAction: true, action: onShowFurniture },
   ];
 
   // Modify tools
@@ -204,12 +242,27 @@ export const MobileToolbar = ({
     { id: 'hatch', icon: '▤', label: 'Hatch' },
   ];
 
+  // Markup tools (PDF annotation)
+  const markupTools = [
+    { id: 'annotation-select', icon: '↖', label: 'Select' },
+    { id: 'annotation-arrow', icon: '➔', label: 'Arrow' },
+    { id: 'annotation-freehand', icon: '✎', label: 'Draw' },
+    { id: 'annotation-circle', icon: '○', label: 'Circle' },
+    { id: 'annotation-rectangle', icon: '□', label: 'Rect' },
+    { id: 'annotation-cloud', icon: '☁', label: 'Cloud' },
+    { id: 'annotation-stamp', icon: '⬚', label: 'Stamp', isAction: true, action: onShowStamps },
+    { id: 'annotation-callout', icon: '①', label: 'Callout' },
+    { id: 'callout-notes', icon: '📝', label: 'Notes', isAction: true, action: onShowCalloutNotes },
+    { id: 'markup-settings', icon: '⚙', label: 'Colors', isAction: true, action: onShowAnnotationSettings },
+  ];
+
   // Tabs configuration
   const tabs = [
     { id: 'draw', label: 'Draw', icon: '✏' },
     { id: 'modify', label: 'Modify', icon: '✎' },
     { id: 'view', label: 'View', icon: '👁' },
     { id: 'annotate', label: 'Annotate', icon: '📝' },
+    { id: 'markup', label: 'Markup', icon: '✏️' },
   ];
 
   // Get current tools based on active tab
@@ -219,6 +272,7 @@ export const MobileToolbar = ({
       case 'modify': return modifyTools;
       case 'view': return viewTools;
       case 'annotate': return annotateTools;
+      case 'markup': return markupTools;
       default: return drawTools;
     }
   };
@@ -263,7 +317,8 @@ export const MobileToolbar = ({
         </Button>
       </div>
 
-      {/* Floating action buttons - undo/redo/delete only */}
+      {/* Floating action buttons - undo/redo/delete only (hidden when panel is open) */}
+      {!panelOpen && (
       <div
         style={{
           position: 'fixed',
@@ -340,6 +395,7 @@ export const MobileToolbar = ({
           </button>
         )}
       </div>
+      )}
 
       {/* Bottom toolbar with tabs */}
       <div
@@ -355,13 +411,13 @@ export const MobileToolbar = ({
           zIndex: 150,
         }}
       >
-        {/* Tools row - only show when expanded */}
+        {/* Tools row - only show when expanded, compact layout */}
         {toolsExpanded && (
           <div
             style={{
               display: 'flex',
               justifyContent: 'space-around',
-              padding: '6px 4px',
+              padding: '4px 2px',
               overflowX: 'auto',
               WebkitOverflowScrolling: 'touch',
               borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -372,30 +428,30 @@ export const MobileToolbar = ({
                 key={t.id}
                 onClick={() => handleToolSelect(t.id, t.isAction, t.action)}
                 style={{
-                  padding: '8px 10px',
-                  minWidth: '48px',
+                  padding: '4px 6px',
+                  minWidth: '40px',
                   background: (!t.isAction && tool === t.id) ? 'rgba(0,200,255,0.2)' : 'transparent',
                   border: 'none',
-                  borderRadius: '8px',
+                  borderRadius: '6px',
                   color: (!t.isAction && tool === t.id) ? '#00c8ff' : '#6080a0',
-                  fontSize: '18px',
+                  fontSize: '16px',
                   cursor: 'pointer',
                   touchAction: 'manipulation',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '2px',
+                  gap: '1px',
                 }}
                 title={t.label}
               >
                 <span>{t.icon}</span>
-                <span style={{ fontSize: '9px' }}>{t.label}</span>
+                <span style={{ fontSize: '8px' }}>{t.label}</span>
               </button>
             ))}
           </div>
         )}
 
-        {/* Tab row - always visible */}
+        {/* Tab row - always visible, compact for more drawing space */}
         <div
           style={{
             display: 'flex',
@@ -407,22 +463,22 @@ export const MobileToolbar = ({
               onClick={() => handleTabChange(tab.id)}
               style={{
                 flex: 1,
-                padding: '10px 8px',
+                padding: '6px 4px',
                 background: (mobileTab === tab.id && toolsExpanded) ? 'rgba(0,200,255,0.15)' : 'transparent',
                 border: 'none',
                 borderTop: (mobileTab === tab.id && toolsExpanded) ? '2px solid #00c8ff' : '2px solid transparent',
                 color: mobileTab === tab.id ? '#00c8ff' : '#6080a0',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: mobileTab === tab.id ? 'bold' : 'normal',
                 cursor: 'pointer',
                 touchAction: 'manipulation',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '2px',
+                gap: '1px',
               }}
             >
-              <span style={{ fontSize: '14px' }}>{tab.icon}</span>
+              <span style={{ fontSize: '12px' }}>{tab.icon}</span>
               <span>{tab.label}</span>
             </button>
           ))}

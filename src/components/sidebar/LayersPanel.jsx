@@ -1,6 +1,14 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { Panel, PanelSection } from '../ui/Panel';
 import { Button } from '../ui/Button';
+
+// Preset colors for the color picker
+const LAYER_COLORS = [
+  '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00',
+  '#ff00ff', '#00ffff', '#ff8800', '#00c8ff', '#00ffaa',
+  '#ff6666', '#66ff66', '#6666ff', '#ffaa00', '#aa00ff',
+  '#888888', '#aaaaaa', '#446688', '#886644', '#668844',
+];
 
 /**
  * LayersPanel - Layer visibility and lock controls
@@ -9,11 +17,14 @@ export const LayersPanel = ({
   layers,
   onToggleVisibility,
   onToggleLock,
+  onSetColor,
   onShowAll,
   onHideAll,
   onClose,
   isMobile = false,
 }) => {
+  const [colorPickerLayer, setColorPickerLayer] = useState(null);
+  const colorInputRef = useRef(null);
   return (
     <Panel
       title="Layers"
@@ -87,16 +98,85 @@ export const LayersPanel = ({
               {layer.locked ? '🔒' : '🔓'}
             </button>
 
-            {/* Layer color indicator */}
-            <div
-              style={{
-                width: '12px',
-                height: '12px',
-                borderRadius: '2px',
-                background: layer.color,
-                border: '1px solid rgba(255,255,255,0.2)',
-              }}
-            />
+            {/* Layer color indicator - clickable */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setColorPickerLayer(colorPickerLayer === id ? null : id)}
+                style={{
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '3px',
+                  background: layer.color,
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+                title="Change layer color"
+              />
+              {/* Color picker dropdown */}
+              {colorPickerLayer === id && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '24px',
+                    left: '0',
+                    zIndex: 1000,
+                    background: 'rgba(20,28,36,0.98)',
+                    border: '1px solid rgba(0,200,255,0.3)',
+                    borderRadius: '8px',
+                    padding: '8px',
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                    width: '140px',
+                  }}
+                >
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(5, 1fr)',
+                    gap: '4px',
+                    marginBottom: '8px',
+                  }}>
+                    {LAYER_COLORS.map(color => (
+                      <button
+                        key={color}
+                        onClick={() => {
+                          onSetColor?.(id, color);
+                          setColorPickerLayer(null);
+                        }}
+                        style={{
+                          width: '22px',
+                          height: '22px',
+                          borderRadius: '3px',
+                          background: color,
+                          border: layer.color === color ? '2px solid #00ffaa' : '1px solid rgba(255,255,255,0.2)',
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  {/* Custom color input */}
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <input
+                      ref={colorInputRef}
+                      type="color"
+                      value={layer.color}
+                      onChange={(e) => {
+                        onSetColor?.(id, e.target.value);
+                      }}
+                      style={{
+                        width: '28px',
+                        height: '22px',
+                        border: 'none',
+                        borderRadius: '3px',
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    />
+                    <span style={{ fontSize: '10px', color: '#6080a0' }}>Custom</span>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Layer name */}
             <span

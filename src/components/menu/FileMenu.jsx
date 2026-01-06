@@ -8,7 +8,8 @@ const FileMenu = ({
   onNew,
   onSave,
   onLoad,
-  onExportPNG,
+  onRecent,
+  onExport,
   onPrint,
   isMobile = false,
 }) => {
@@ -43,9 +44,10 @@ const FileMenu = ({
   const menuItems = [
     { label: 'New Project', icon: '📄', action: () => { onNew?.(); setIsOpen(false); } },
     { label: 'Open...', icon: '📂', action: handleLoad },
+    { label: 'Recent Projects', icon: '🕐', action: () => { onRecent?.(); setIsOpen(false); } },
     { label: 'Save', icon: '💾', action: () => { onSave?.(); setIsOpen(false); } },
     { divider: true },
-    { label: 'Export PNG', icon: '🖼️', action: () => { onExportPNG?.(); setIsOpen(false); } },
+    { label: 'Export...', icon: '📤', action: () => { onExport?.(); setIsOpen(false); } },
     { label: 'Print', icon: '🖨️', action: () => { onPrint?.(); setIsOpen(false); } },
   ];
 

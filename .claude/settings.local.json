@@ -11,7 +11,8 @@
       "Bash(where:*)",
       "Bash(where npm:*)",
       "Bash(powershell -Command \"cd ''C:\\\\Users\\\\Paul\\\\Desktop\\\\floorplan-pro''; npm run dev 2>&1 | Select-Object -First 60\")",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

@@ -80,6 +80,17 @@ export const useCanvasInteraction = ({
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawStart, setDrawStart] = useState(null);
   const [drawEnd, setDrawEnd] = useState(null);
+  const [polarAngle, setPolarAngle] = useState(null); // Current snapped polar angle for display
+  const [startingLineAngle, setStartingLineAngle] = useState(null); // Angle of line we started from (for perpendicular)
+
+  // Polyline drawing state - accumulates points as user clicks
+  const [polylinePoints, setPolylinePoints] = useState([]);
+
+  // Hatch drawing state - accumulates points for polygon boundary
+  const [hatchPoints, setHatchPoints] = useState([]);
+
+  // Room drawing state - accumulates points for room boundary polygon
+  const [roomPoints, setRoomPoints] = useState([]);
 
   // Panning state
   const [isPanning, setIsPanning] = useState(false);
@@ -88,9 +99,11 @@ export const useCanvasInteraction = ({
   // Drag state
   const [dragItem, setDragItem] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dragOriginalPositions, setDragOriginalPositions] = useState(null); // For alignment guidelines
 
   // Grip editing state
   const [activeGrip, setActiveGrip] = useState(null);
+  const [gripCursorPosition, setGripCursorPosition] = useState(null); // For displaying grip guidelines
 
   // Touch state for pinch-to-zoom
   const [pinchStart, setPinchStart] = useState(null);
@@ -146,32 +159,109 @@ export const useCanvasInteraction = ({
     return screenToCanvas(clientX, clientY);
   }, [screenToCanvas]);
 
-  // Snap angle for wall drawing
-  const snapAngle = useCallback((start, end) => {
-    if (angleSnap === 'off') return end;
+  // Snap angle for wall/line drawing - returns { point, angle, isSnapped }
+  const snapAngle = useCallback((start, end, baseAngle = null) => {
+    if (angleSnap === 'off' && baseAngle === null) return { point: end, angle: null, isSnapped: false };
 
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const length = Math.sqrt(dx * dx + dy * dy);
-    if (length < 5) return end;
+    if (length < 5) return { point: end, angle: null, isSnapped: false };
 
     const angle = Math.atan2(dy, dx) * 180 / Math.PI;
     const snapDegrees = parseInt(angleSnap) || 45;
-    const snappedAngle = Math.round(angle / snapDegrees) * snapDegrees;
+
+    let snappedAngle;
+    if (baseAngle !== null) {
+      // Snap relative to base angle (for perpendicular from existing line)
+      // Snap to baseAngle, baseAngle+90, baseAngle+180, baseAngle+270
+      const relativeAngles = [0, 90, 180, 270, -90, -180, -270].map(a => baseAngle + a);
+      let minDiff = Infinity;
+      snappedAngle = angle;
+      relativeAngles.forEach(ra => {
+        // Normalize angles for comparison
+        let diff = Math.abs(((angle - ra + 180) % 360) - 180);
+        if (diff < minDiff && diff < 15) { // 15 degree tolerance for perpendicular snap
+          minDiff = diff;
+          snappedAngle = ra;
+        }
+      });
+      if (minDiff === Infinity) {
+        // No perpendicular snap, fall back to regular angle snap
+        if (angleSnap !== 'off') {
+          snappedAngle = Math.round(angle / snapDegrees) * snapDegrees;
+        } else {
+          return { point: end, angle: angle, isSnapped: false };
+        }
+      }
+    } else {
+      snappedAngle = Math.round(angle / snapDegrees) * snapDegrees;
+    }
+
     const snappedRad = snappedAngle * Math.PI / 180;
 
     return {
-      x: start.x + Math.cos(snappedRad) * length,
-      y: start.y + Math.sin(snappedRad) * length,
+      point: {
+        x: start.x + Math.cos(snappedRad) * length,
+        y: start.y + Math.sin(snappedRad) * length,
+      },
+      angle: snappedAngle,
+      isSnapped: true
     };
   }, [angleSnap]);
+
+  // Detect if starting from an existing wall or line endpoint - returns the angle of that line
+  const detectStartingLineAngle = useCallback((startPos, floor) => {
+    if (!floor) return null;
+    const SNAP_DIST = 15;
+
+    // Check walls
+    for (const wall of floor.walls || []) {
+      const dStart = distance(startPos, wall.start);
+      const dEnd = distance(startPos, wall.end);
+      if (dStart < SNAP_DIST || dEnd < SNAP_DIST) {
+        // Return the angle of this wall
+        return Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x) * 180 / Math.PI;
+      }
+    }
+
+    // Check annotation lines
+    for (const line of floor.lines || []) {
+      if (!line.start || !line.end) continue;
+      const dStart = distance(startPos, line.start);
+      const dEnd = distance(startPos, line.end);
+      if (dStart < SNAP_DIST || dEnd < SNAP_DIST) {
+        return Math.atan2(line.end.y - line.start.y, line.end.x - line.start.x) * 180 / Math.PI;
+      }
+    }
+
+    // Check polylines
+    for (const polyline of floor.polylines || []) {
+      if (!polyline.points || polyline.points.length < 2) continue;
+      for (let i = 0; i < polyline.points.length; i++) {
+        const pt = polyline.points[i];
+        if (distance(startPos, pt) < SNAP_DIST) {
+          // Return angle of adjacent segment
+          if (i > 0) {
+            const prev = polyline.points[i - 1];
+            return Math.atan2(pt.y - prev.y, pt.x - prev.x) * 180 / Math.PI;
+          } else if (i < polyline.points.length - 1) {
+            const next = polyline.points[i + 1];
+            return Math.atan2(next.y - pt.y, next.x - pt.x) * 180 / Math.PI;
+          }
+        }
+      }
+    }
+
+    return null;
+  }, []);
 
   // Find item at position
   const findItemAt = useCallback((pos) => {
     if (!activeFloor) return null;
 
     // Check furniture
-    if (layers.furniture?.visible !== false) {
+    if (layers.furniture?.visible !== false && !layers.furniture?.locked) {
       for (const furniture of activeFloor.furniture || []) {
         const pxWidth = furniture.width * (GRID_SIZE / 6);
         const pxHeight = furniture.height * (GRID_SIZE / 6);
@@ -186,7 +276,7 @@ export const useCanvasInteraction = ({
     }
 
     // Check doors
-    if (layers.doors?.visible !== false) {
+    if (layers.doors?.visible !== false && !layers.doors?.locked) {
       for (const door of activeFloor.doors || []) {
         const wall = activeFloor.walls?.find(w => w.id === door.wallId);
         if (!wall) continue;
@@ -205,7 +295,7 @@ export const useCanvasInteraction = ({
     }
 
     // Check windows
-    if (layers.windows?.visible !== false) {
+    if (layers.windows?.visible !== false && !layers.windows?.locked) {
       for (const window of activeFloor.windows || []) {
         const wall = activeFloor.walls?.find(w => w.id === window.wallId);
         if (!wall) continue;
@@ -243,24 +333,36 @@ export const useCanvasInteraction = ({
       }
     }
 
-    // Check rooms
-    for (const room of activeFloor.rooms || []) {
-      if (pos.x >= room.x && pos.x <= room.x + room.width &&
-          pos.y >= room.y && pos.y <= room.y + room.height) {
-        return { type: 'room', item: room };
+    // Check rooms (both polygon-based and legacy rectangle)
+    if (layers.rooms?.visible !== false && !layers.rooms?.locked) {
+      for (const room of activeFloor.rooms || []) {
+        if (room.points && room.points.length >= 3) {
+          // Polygon-based room - check if point is inside
+          if (isPointInPolygon(pos, room.points)) {
+            return { type: 'room', item: room };
+          }
+        } else if (room.x !== undefined && room.width !== undefined) {
+          // Legacy rectangle room
+          if (pos.x >= room.x && pos.x <= room.x + room.width &&
+              pos.y >= room.y && pos.y <= room.y + room.height) {
+            return { type: 'room', item: room };
+          }
+        }
       }
     }
 
     // Check roofs (using points-based polygon)
-    for (const roof of activeFloor.roofs || []) {
-      const points = getRoofPoints(roof);
-      if (isPointInPolygon(pos, points)) {
-        return { type: 'roof', item: roof };
+    if (layers.roofs?.visible !== false && !layers.roofs?.locked) {
+      for (const roof of activeFloor.roofs || []) {
+        const points = getRoofPoints(roof);
+        if (isPointInPolygon(pos, points)) {
+          return { type: 'roof', item: roof };
+        }
       }
     }
 
     // Check dimensions
-    if (layers.dimensions?.visible !== false) {
+    if (layers.dimensions?.visible !== false && !layers.dimensions?.locked) {
       for (const dim of activeFloor.dimensions || []) {
         // Check if click is near the dimension line
         const dx = dim.end.x - dim.start.x;
@@ -292,7 +394,7 @@ export const useCanvasInteraction = ({
     }
 
     // Check annotation lines
-    if (layers.annotations?.visible !== false) {
+    if (layers.lines?.visible !== false && !layers.lines?.locked) {
       for (const line of activeFloor.lines || []) {
         const dx = line.end.x - line.start.x;
         const dy = line.end.y - line.start.y;
@@ -307,8 +409,42 @@ export const useCanvasInteraction = ({
           }
         }
       }
+    }
 
-      // Check text annotations
+    // Check polylines
+    if (layers.lines?.visible !== false && !layers.lines?.locked) {
+      for (const polyline of activeFloor.polylines || []) {
+        if (!polyline.points || polyline.points.length < 2) continue;
+
+        // Check each segment of the polyline
+        for (let i = 0; i < polyline.points.length - 1; i++) {
+          const p1 = polyline.points[i];
+          const p2 = polyline.points[i + 1];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const segLen = Math.sqrt(dx * dx + dy * dy);
+          if (segLen < 0.001) continue;
+
+          const t = ((pos.x - p1.x) * dx + (pos.y - p1.y) * dy) / (segLen * segLen);
+          if (t >= 0 && t <= 1) {
+            const closest = { x: p1.x + t * dx, y: p1.y + t * dy };
+            if (distance(pos, closest) < 10) {
+              return { type: 'polyline', item: polyline };
+            }
+          }
+        }
+
+        // Also check vertices
+        for (const pt of polyline.points) {
+          if (distance(pos, pt) < 8) {
+            return { type: 'polyline', item: polyline };
+          }
+        }
+      }
+    }
+
+    // Check text annotations
+    if (layers.text?.visible !== false && !layers.text?.locked) {
       for (const text of activeFloor.texts || []) {
         // Estimate text bounding box based on font size and text length
         const fontSize = text.fontSize || 14;
@@ -324,8 +460,68 @@ export const useCanvasInteraction = ({
       }
     }
 
+    // Check hatches - use point-in-polygon test
+    if (layers.hatches?.visible !== false && !layers.hatches?.locked) {
+      for (const hatch of activeFloor.hatches || []) {
+        if (!hatch.points || hatch.points.length < 3) continue;
+        if (isPointInPolygon(pos, hatch.points)) {
+          return { type: 'hatch', item: hatch };
+        }
+        // Also check boundary edges
+        for (let i = 0; i < hatch.points.length; i++) {
+          const p1 = hatch.points[i];
+          const p2 = hatch.points[(i + 1) % hatch.points.length];
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const segLen = Math.sqrt(dx * dx + dy * dy);
+          if (segLen < 0.001) continue;
+          const t = ((pos.x - p1.x) * dx + (pos.y - p1.y) * dy) / (segLen * segLen);
+          if (t >= 0 && t <= 1) {
+            const closest = { x: p1.x + t * dx, y: p1.y + t * dy };
+            if (distance(pos, closest) < 10) {
+              return { type: 'hatch', item: hatch };
+            }
+          }
+        }
+      }
+    }
+
     return null;
   }, [activeFloor, layers]);
+
+  // Find a closed polyline at position (for converting to hatch)
+  const findClosedPolylineAt = useCallback((pos) => {
+    if (!activeFloor?.polylines) return null;
+
+    for (const polyline of activeFloor.polylines) {
+      // Must be closed and have at least 3 points
+      if (!polyline.closed || !polyline.points || polyline.points.length < 3) continue;
+
+      // Check if point is inside the polygon
+      if (isPointInPolygon(pos, polyline.points)) {
+        return polyline;
+      }
+
+      // Also check if clicking near an edge
+      for (let i = 0; i < polyline.points.length; i++) {
+        const p1 = polyline.points[i];
+        const p2 = polyline.points[(i + 1) % polyline.points.length];
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const segLen = Math.sqrt(dx * dx + dy * dy);
+        if (segLen < 0.001) continue;
+
+        const t = ((pos.x - p1.x) * dx + (pos.y - p1.y) * dy) / (segLen * segLen);
+        if (t >= 0 && t <= 1) {
+          const closest = { x: p1.x + t * dx, y: p1.y + t * dy };
+          if (distance(pos, closest) < 15) {
+            return polyline;
+          }
+        }
+      }
+    }
+    return null;
+  }, [activeFloor]);
 
   // Find nearest wall to position (for door/window placement)
   const findNearestWall = useCallback((pos) => {
@@ -382,9 +578,21 @@ export const useCanvasInteraction = ({
       } else if (type === 'room') {
         updateActiveFloor(f => ({
           ...f,
-          rooms: (f.rooms || []).map(r =>
-            r.id === item.id ? { ...r, x: r.x + deltaX, y: r.y + deltaY } : r
-          ),
+          rooms: (f.rooms || []).map(r => {
+            if (r.id !== item.id) return r;
+            // Handle both polygon-based rooms (points array) and legacy rectangle rooms
+            if (r.points) {
+              return {
+                ...r,
+                points: r.points.map(pt => ({
+                  x: pt.x + deltaX,
+                  y: pt.y + deltaY,
+                })),
+              };
+            } else {
+              return { ...r, x: r.x + deltaX, y: r.y + deltaY };
+            }
+          }),
         }));
       } else if (type === 'roof') {
         updateActiveFloor(f => ({
@@ -455,16 +663,26 @@ export const useCanvasInteraction = ({
           ),
         }));
       } else if (type === 'room') {
-        const newPos = rotatePoint(item.x + item.width / 2, item.y + item.height / 2);
         updateActiveFloor(f => ({
           ...f,
-          rooms: (f.rooms || []).map(r =>
-            r.id === item.id ? {
-              ...r,
-              x: snap(newPos.x - item.width / 2),
-              y: snap(newPos.y - item.height / 2),
-            } : r
-          ),
+          rooms: (f.rooms || []).map(r => {
+            if (r.id !== item.id) return r;
+            // Handle both polygon-based rooms (points array) and legacy rectangle rooms
+            if (r.points) {
+              const newPoints = r.points.map(pt => {
+                const rotated = rotatePoint(pt.x, pt.y);
+                return { x: snap(rotated.x), y: snap(rotated.y) };
+              });
+              return { ...r, points: newPoints };
+            } else {
+              const newPos = rotatePoint(item.x + item.width / 2, item.y + item.height / 2);
+              return {
+                ...r,
+                x: snap(newPos.x - item.width / 2),
+                y: snap(newPos.y - item.height / 2),
+              };
+            }
+          }),
         }));
       } else if (type === 'roof') {
         updateActiveFloor(f => ({
@@ -520,7 +738,45 @@ export const useCanvasInteraction = ({
       setIsDrawing(true);
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
-    } else if (tool === 'room' || tool === 'roof') {
+      // Detect if starting from an existing wall/line to enable perpendicular snap
+      const lineAngle = detectStartingLineAngle(snappedPos, activeFloor);
+      setStartingLineAngle(lineAngle);
+    } else if (tool === 'room') {
+      // Room tool - click to add boundary points, close to first point to finish
+      // Check if clicking near the first point to close the room
+      if (roomPoints.length >= 3) {
+        const distToFirst = distance(snappedPos, roomPoints[0]);
+        if (distToFirst < (isMobile ? 30 : 15)) {
+          // Close the room
+          const newRoom = {
+            id: generateId(),
+            points: [...roomPoints],
+            name: 'Room',
+            color: 'rgba(100, 200, 255, 0.15)',
+          };
+          updateActiveFloor(f => ({ ...f, rooms: [...(f.rooms || []), newRoom] }));
+          setSelectedItems([{ type: 'room', item: newRoom }]);
+          setSelectionSource?.('draw');
+          setRoomPoints([]);
+          setIsDrawing(false);
+          setDrawEnd(null);
+          setSnapGuidelines(null);
+          setActiveSnap(null);
+          return;
+        }
+      }
+
+      // Add point to room boundary
+      if (roomPoints.length === 0) {
+        // First point - start new room
+        setRoomPoints([snappedPos]);
+        setIsDrawing(true);
+        setDrawEnd(snappedPos);
+      } else {
+        // Add another point to the room boundary
+        setRoomPoints(prev => [...prev, snappedPos]);
+      }
+    } else if (tool === 'roof') {
       setIsDrawing(true);
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
@@ -567,10 +823,92 @@ export const useCanvasInteraction = ({
       setSelectedItems([{ type: 'text', item: newText }]);
       setSelectionSource?.('draw');
     } else if (tool === 'line') {
-      // Line/polyline tool - click to draw annotation lines
+      // Line tool - click to draw annotation lines
       setIsDrawing(true);
       setDrawStart(snappedPos);
       setDrawEnd(snappedPos);
+      // Detect if starting from an existing line to enable perpendicular snap
+      const lineAngle = detectStartingLineAngle(snappedPos, activeFloor);
+      setStartingLineAngle(lineAngle);
+    } else if (tool === 'polyline') {
+      // Polyline tool - click to add points, double-click or Escape to finish
+      if (polylinePoints.length === 0) {
+        // First point - start new polyline
+        setPolylinePoints([snappedPos]);
+        setIsDrawing(true);
+        setDrawEnd(snappedPos);
+      } else {
+        // Add another point to the polyline
+        setPolylinePoints(prev => [...prev, snappedPos]);
+      }
+    } else if (tool === 'hatch') {
+      // Hatch tool - click to add boundary points, close to first point to finish
+      // OR click on an existing closed polyline to convert it to a hatch
+
+      // First, check if clicking on a closed polyline to convert it
+      if (hatchPoints.length === 0) {
+        const clickedPolyline = findClosedPolylineAt(pos);
+        if (clickedPolyline) {
+          // Convert closed polyline to hatch
+          const newHatch = {
+            id: generateId(),
+            points: [...clickedPolyline.points],
+            pattern: 'diagonal',
+            color: '#888888',
+            backgroundColor: 'transparent',
+            spacing: 10,
+            lineWidth: 1,
+            opacity: 0.5,
+          };
+          updateActiveFloor(f => ({
+            ...f,
+            hatches: [...(f.hatches || []), newHatch],
+            // Optionally remove the polyline
+            // polylines: (f.polylines || []).filter(p => p.id !== clickedPolyline.id),
+          }));
+          setSelectedItems([{ type: 'hatch', item: newHatch }]);
+          setSelectionSource?.('draw');
+          return;
+        }
+      }
+
+      // Check if clicking near the first point to close the hatch
+      if (hatchPoints.length >= 3) {
+        const distToFirst = distance(snappedPos, hatchPoints[0]);
+        if (distToFirst < (isMobile ? 30 : 15)) {
+          // Close the hatch
+          const newHatch = {
+            id: generateId(),
+            points: [...hatchPoints],
+            pattern: 'diagonal',
+            color: '#888888',
+            backgroundColor: 'transparent',
+            spacing: 10,
+            lineWidth: 1,
+            opacity: 0.5,
+          };
+          updateActiveFloor(f => ({ ...f, hatches: [...(f.hatches || []), newHatch] }));
+          setSelectedItems([{ type: 'hatch', item: newHatch }]);
+          setSelectionSource?.('draw');
+          setHatchPoints([]);
+          setIsDrawing(false);
+          setDrawEnd(null);
+          setSnapGuidelines(null);
+          setActiveSnap(null);
+          return;
+        }
+      }
+
+      // Add point to hatch boundary
+      if (hatchPoints.length === 0) {
+        // First point - start new hatch
+        setHatchPoints([snappedPos]);
+        setIsDrawing(true);
+        setDrawEnd(snappedPos);
+      } else {
+        // Add another point to the hatch boundary
+        setHatchPoints(prev => [...prev, snappedPos]);
+      }
     } else if (tool === 'select') {
       // First check if clicking on a grip of a selected wall or roof
       const gripRadius = isMobile ? 20 : 12;
@@ -581,13 +919,29 @@ export const useCanvasInteraction = ({
           const dEnd = distance(pos, wall.end);
 
           if (dStart < gripRadius) {
-            // Clicked on start grip - begin grip drag
-            setActiveGrip({ type: 'wall', wall, endpoint: 'start' });
+            // Clicked on start grip - begin grip drag, store original position and wall angle
+            const wallAngle = Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x);
+            setActiveGrip({
+              type: 'wall',
+              wall,
+              endpoint: 'start',
+              originalPosition: { ...wall.start },
+              originalOtherEndpoint: { ...wall.end },
+              originalWallAngle: wallAngle
+            });
             return;
           }
           if (dEnd < gripRadius) {
-            // Clicked on end grip - begin grip drag
-            setActiveGrip({ type: 'wall', wall, endpoint: 'end' });
+            // Clicked on end grip - begin grip drag, store original position and wall angle
+            const wallAngle = Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x);
+            setActiveGrip({
+              type: 'wall',
+              wall,
+              endpoint: 'end',
+              originalPosition: { ...wall.end },
+              originalOtherEndpoint: { ...wall.start },
+              originalWallAngle: wallAngle
+            });
             return;
           }
         }
@@ -658,6 +1012,48 @@ export const useCanvasInteraction = ({
             return;
           }
         }
+
+        // Check polyline vertex grips
+        if (selected.type === 'polyline') {
+          const polyline = selected.item;
+          if (polyline.points && polyline.points.length > 0) {
+            for (let i = 0; i < polyline.points.length; i++) {
+              const d = distance(pos, polyline.points[i]);
+              if (d < gripRadius) {
+                setActiveGrip({ type: 'polyline', polyline, pointIndex: i });
+                return;
+              }
+            }
+          }
+        }
+
+        // Check hatch vertex grips
+        if (selected.type === 'hatch') {
+          const hatch = selected.item;
+          if (hatch.points && hatch.points.length > 0) {
+            for (let i = 0; i < hatch.points.length; i++) {
+              const d = distance(pos, hatch.points[i]);
+              if (d < gripRadius) {
+                setActiveGrip({ type: 'hatch', hatch, pointIndex: i });
+                return;
+              }
+            }
+          }
+        }
+
+        // Check room vertex grips (for polygon-based rooms)
+        if (selected.type === 'room') {
+          const room = selected.item;
+          if (room.points && room.points.length > 0) {
+            for (let i = 0; i < room.points.length; i++) {
+              const d = distance(pos, room.points[i]);
+              if (d < gripRadius) {
+                setActiveGrip({ type: 'room', room, pointIndex: i });
+                return;
+              }
+            }
+          }
+        }
       }
 
       const item = findItemAt(pos);
@@ -681,6 +1077,11 @@ export const useCanvasInteraction = ({
           // Note: dimensions and lines use grip editing, not whole-item dragging
           if (item.type === 'wall') {
             setDragOffset({ x: pos.x, y: pos.y });
+            // Store original wall positions for alignment guidelines
+            setDragOriginalPositions({
+              start: { ...item.item.start },
+              end: { ...item.item.end }
+            });
           } else if (item.type === 'text') {
             setDragOffset({ x: pos.x - (item.item.position?.x || 0), y: pos.y - (item.item.position?.y || 0) });
           } else {
@@ -1242,7 +1643,7 @@ export const useCanvasInteraction = ({
         }
       }
     }
-  }, [tool, getPointerPos, snap, offset, scale, findItemAt, findNearestWall, updateActiveFloor, selectedItems, setSelectedItems, moveBasePoint, moveSelectedItems, rotateCenter, rotateStartAngle, rotateSelectedItems, activeFloor, isMobile]);
+  }, [tool, getPointerPos, snap, offset, scale, findItemAt, findNearestWall, updateActiveFloor, selectedItems, setSelectedItems, moveBasePoint, moveSelectedItems, rotateCenter, rotateStartAngle, rotateSelectedItems, activeFloor, isMobile, polylinePoints, hatchPoints, roomPoints, findClosedPolylineAt]);
 
   // Handle pointer move
   const handlePointerMove = useCallback((e) => {
@@ -1298,9 +1699,12 @@ export const useCanvasInteraction = ({
       return;
     }
 
-    if (isDrawing && drawStart) {
+    // Handle drawing state updates - for regular tools (drawStart) or polyline/hatch/room (accumulated points)
+    if (isDrawing && (drawStart || polylinePoints.length > 0 || hatchPoints.length > 0 || roomPoints.length > 0)) {
       const pos = getPointerPos(e);
-      let snappedPos = { x: snap(pos.x), y: snap(pos.y) };
+      // Keep raw position for object snap detection (object snaps should override grid)
+      const rawPos = { ...pos };
+      let snappedPos = { ...pos };
 
       // Auto-pan when drawing near screen edges on mobile
       if (isMobile && clientX !== undefined && clientY !== undefined && setOffset) {
@@ -1334,16 +1738,42 @@ export const useCanvasInteraction = ({
         }
       }
 
-      // Apply snapping for walls, doors, windows, dimensions, and lines
-      if (tool === 'wall' || tool === 'door' || tool === 'window' || tool === 'dimension' || tool === 'line') {
-        // Apply angle snapping first (for walls)
-        if (tool === 'wall') {
-          snappedPos = snapAngle(drawStart, snappedPos);
+      // Apply snapping for walls, doors, windows, dimensions, lines, polylines, hatches, and rooms
+      if (tool === 'wall' || tool === 'door' || tool === 'window' || tool === 'dimension' || tool === 'line' || tool === 'polyline' || tool === 'hatch' || tool === 'room') {
+        // Apply angle snapping first (for walls and lines)
+        let currentPolarAngle = null;
+        let isPolarSnapped = false;
+        if (tool === 'wall' || tool === 'line') {
+          const angleResult = snapAngle(drawStart, snappedPos, startingLineAngle);
+          snappedPos = angleResult.point;
+          currentPolarAngle = angleResult.angle;
+          isPolarSnapped = angleResult.isSnapped;
+          setPolarAngle(currentPolarAngle);
+        } else {
+          setPolarAngle(null);
         }
 
         // Apply grid snapping if enabled
+        // When polar tracking is active, snap along the angle line to grid instead of both axes
         if (snaps.grid) {
-          snappedPos = { x: snap(snappedPos.x), y: snap(snappedPos.y) };
+          if (isPolarSnapped && currentPolarAngle !== null && drawStart) {
+            // Snap to grid along the polar angle line
+            // Calculate the length from start to current position
+            const dx = snappedPos.x - drawStart.x;
+            const dy = snappedPos.y - drawStart.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            // Snap the length to grid
+            const snappedLength = snap(length);
+            // Recalculate position along the angle
+            const angleRad = currentPolarAngle * Math.PI / 180;
+            snappedPos = {
+              x: drawStart.x + Math.cos(angleRad) * snappedLength,
+              y: drawStart.y + Math.sin(angleRad) * snappedLength,
+            };
+          } else {
+            // Normal grid snapping for non-polar tools
+            snappedPos = { x: snap(snappedPos.x), y: snap(snappedPos.y) };
+          }
         }
 
         // Snap distances - larger for mobile
@@ -1356,11 +1786,20 @@ export const useCanvasInteraction = ({
         const snapCandidates = [];
         const walls = activeFloor?.walls || [];
 
-        walls.forEach(wall => {
-          // Skip points too close to drawStart
-          const isNearStart = (pt) =>
-            Math.abs(pt.x - drawStart.x) < 5 && Math.abs(pt.y - drawStart.y) < 5;
+        // For polyline/hatch/room, use the last point as the reference; for other tools use drawStart
+        const referencePoint = tool === 'polyline' && polylinePoints.length > 0
+          ? polylinePoints[polylinePoints.length - 1]
+          : tool === 'hatch' && hatchPoints.length > 0
+            ? hatchPoints[hatchPoints.length - 1]
+            : tool === 'room' && roomPoints.length > 0
+              ? roomPoints[roomPoints.length - 1]
+              : drawStart;
 
+        // Skip points too close to reference point (drawStart or last polyline point)
+        const isNearStart = (pt) =>
+          referencePoint && Math.abs(pt.x - referencePoint.x) < 5 && Math.abs(pt.y - referencePoint.y) < 5;
+
+        walls.forEach(wall => {
           // Endpoint snaps
           if (snaps.endpoint) {
             if (!isNearStart(wall.start)) {
@@ -1446,15 +1885,15 @@ export const useCanvasInteraction = ({
             });
           }
 
-          // Perpendicular snap - find the point on wall where a line from drawStart would be perpendicular
-          if (snaps.perpendicular && drawStart) {
+          // Perpendicular snap - find the point on wall where a line from reference point would be perpendicular
+          if (snaps.perpendicular && referencePoint) {
             const wallDx = wall.end.x - wall.start.x;
             const wallDy = wall.end.y - wall.start.y;
             const wallLen2 = wallDx * wallDx + wallDy * wallDy;
 
             if (wallLen2 > 0) {
-              // Project drawStart onto the wall line to find perpendicular foot
-              const t = ((drawStart.x - wall.start.x) * wallDx + (drawStart.y - wall.start.y) * wallDy) / wallLen2;
+              // Project reference point onto the wall line to find perpendicular foot
+              const t = ((referencePoint.x - wall.start.x) * wallDx + (referencePoint.y - wall.start.y) * wallDy) / wallLen2;
 
               // Only consider if perpendicular foot lands on the wall segment
               if (t >= 0.01 && t <= 0.99) { // Avoid endpoints (those are handled by endpoint snap)
@@ -1463,8 +1902,8 @@ export const useCanvasInteraction = ({
                   y: wall.start.y + t * wallDy
                 };
 
-                // Check if cursor is near this perpendicular point
-                const distToPerpPoint = distance(snappedPos, perpPoint);
+                // Check if cursor is near this perpendicular point (use rawPos for detection)
+                const distToPerpPoint = distance(rawPos, perpPoint);
                 if (distToPerpPoint < PERP_SNAP_DIST && !isNearStart(perpPoint)) {
                   snapCandidates.push({
                     ...perpPoint,
@@ -1477,11 +1916,11 @@ export const useCanvasInteraction = ({
             }
           }
 
-          // Nearest point snap - closest point on wall
+          // Nearest point snap - closest point on wall (use rawPos for detection)
           if (snaps.nearest) {
-            const nearest = closestPointOnLine(snappedPos, wall.start, wall.end);
+            const nearest = closestPointOnLine(rawPos, wall.start, wall.end);
             if (!isNearStart(nearest)) {
-              const d = distance(snappedPos, nearest);
+              const d = distance(rawPos, nearest);
               if (d < NEAREST_SNAP_DIST) {
                 snapCandidates.push({
                   ...nearest,
@@ -1494,16 +1933,194 @@ export const useCanvasInteraction = ({
           }
         });
 
+        // Add polyline snaps - vertices, midpoints, nearest, perpendicular
+        (activeFloor?.polylines || []).forEach(polyline => {
+          if (!polyline.points || polyline.points.length < 2) return;
+
+          // Endpoint snaps - snap to vertices
+          if (snaps.endpoint) {
+            polyline.points.forEach(pt => {
+              if (!isNearStart(pt)) {
+                snapCandidates.push({
+                  x: pt.x,
+                  y: pt.y,
+                  type: 'endpoint',
+                });
+              }
+            });
+          }
+
+          // Process each segment for midpoint, nearest, and perpendicular snaps
+          const numSegments = polyline.closed ? polyline.points.length : polyline.points.length - 1;
+          for (let i = 0; i < numSegments; i++) {
+            const p1 = polyline.points[i];
+            const p2 = polyline.points[(i + 1) % polyline.points.length];
+            const segDx = p2.x - p1.x;
+            const segDy = p2.y - p1.y;
+            const segLen2 = segDx * segDx + segDy * segDy;
+            if (segLen2 < 0.001) continue;
+
+            // Midpoint snap
+            if (snaps.midpoint) {
+              const mid = {
+                x: (p1.x + p2.x) / 2,
+                y: (p1.y + p2.y) / 2
+              };
+              if (!isNearStart(mid)) {
+                snapCandidates.push({
+                  ...mid,
+                  type: 'midpoint',
+                });
+              }
+            }
+
+            // Perpendicular snap (use rawPos for detection)
+            if (snaps.perpendicular && referencePoint) {
+              const t = ((referencePoint.x - p1.x) * segDx + (referencePoint.y - p1.y) * segDy) / segLen2;
+              if (t >= 0.01 && t <= 0.99) {
+                const perpPoint = {
+                  x: p1.x + t * segDx,
+                  y: p1.y + t * segDy
+                };
+                const distToPerpPoint = distance(rawPos, perpPoint);
+                if (distToPerpPoint < PERP_SNAP_DIST && !isNearStart(perpPoint)) {
+                  snapCandidates.push({
+                    ...perpPoint,
+                    type: 'perpendicular',
+                    priority: 2
+                  });
+                }
+              }
+            }
+
+            // Nearest point snap (use rawPos for detection)
+            if (snaps.nearest) {
+              const t = Math.max(0, Math.min(1, ((rawPos.x - p1.x) * segDx + (rawPos.y - p1.y) * segDy) / segLen2));
+              const nearest = {
+                x: p1.x + t * segDx,
+                y: p1.y + t * segDy
+              };
+              if (!isNearStart(nearest)) {
+                const d = distance(rawPos, nearest);
+                if (d < NEAREST_SNAP_DIST) {
+                  snapCandidates.push({
+                    ...nearest,
+                    type: 'nearest',
+                    priority: 1
+                  });
+                }
+              }
+            }
+          }
+        });
+
+        // Also snap to vertices of the polyline currently being drawn (except the last point)
+        if (snaps.endpoint && tool === 'polyline' && polylinePoints.length > 1) {
+          // Can snap to first point to close the polyline, and other points
+          polylinePoints.forEach((pt, idx) => {
+            // Skip the last point (that's the reference point)
+            if (idx === polylinePoints.length - 1) return;
+            if (!isNearStart(pt)) {
+              snapCandidates.push({
+                x: pt.x,
+                y: pt.y,
+                type: idx === 0 ? 'close-polyline' : 'endpoint',
+              });
+            }
+          });
+        }
+
+        // Add annotation line snaps - endpoints, midpoints, nearest, perpendicular
+        (activeFloor?.lines || []).forEach(line => {
+          if (!line.start || !line.end) return;
+
+          const lineDx = line.end.x - line.start.x;
+          const lineDy = line.end.y - line.start.y;
+          const lineLen2 = lineDx * lineDx + lineDy * lineDy;
+          if (lineLen2 < 0.001) return;
+
+          // Endpoint snaps
+          if (snaps.endpoint) {
+            if (!isNearStart(line.start)) {
+              snapCandidates.push({
+                x: line.start.x,
+                y: line.start.y,
+                type: 'endpoint',
+              });
+            }
+            if (!isNearStart(line.end)) {
+              snapCandidates.push({
+                x: line.end.x,
+                y: line.end.y,
+                type: 'endpoint',
+              });
+            }
+          }
+
+          // Midpoint snap
+          if (snaps.midpoint) {
+            const mid = {
+              x: (line.start.x + line.end.x) / 2,
+              y: (line.start.y + line.end.y) / 2
+            };
+            if (!isNearStart(mid)) {
+              snapCandidates.push({
+                ...mid,
+                type: 'midpoint',
+              });
+            }
+          }
+
+          // Perpendicular snap (use rawPos for detection)
+          if (snaps.perpendicular && referencePoint) {
+            const t = ((referencePoint.x - line.start.x) * lineDx + (referencePoint.y - line.start.y) * lineDy) / lineLen2;
+            if (t >= 0.01 && t <= 0.99) {
+              const perpPoint = {
+                x: line.start.x + t * lineDx,
+                y: line.start.y + t * lineDy
+              };
+              const distToPerpPoint = distance(rawPos, perpPoint);
+              if (distToPerpPoint < PERP_SNAP_DIST && !isNearStart(perpPoint)) {
+                snapCandidates.push({
+                  ...perpPoint,
+                  type: 'perpendicular',
+                  priority: 2
+                });
+              }
+            }
+          }
+
+          // Nearest point snap (use rawPos for detection)
+          if (snaps.nearest) {
+            const t = Math.max(0, Math.min(1, ((rawPos.x - line.start.x) * lineDx + (rawPos.y - line.start.y) * lineDy) / lineLen2));
+            const nearest = {
+              x: line.start.x + t * lineDx,
+              y: line.start.y + t * lineDy
+            };
+            if (!isNearStart(nearest)) {
+              const d = distance(rawPos, nearest);
+              if (d < NEAREST_SNAP_DIST) {
+                snapCandidates.push({
+                  ...nearest,
+                  type: 'nearest',
+                  priority: 1
+                });
+              }
+            }
+          }
+        });
+
         // Find best snap candidate
         // Priority: endpoint/midpoint > perpendicular > nearest
         let bestSnap = null;
         let bestDist = POINT_SNAP_DIST;
 
-        // First pass: check endpoints and midpoints (highest priority) including door/window midpoints
+        // First pass: check endpoints and midpoints (highest priority) including door/window midpoints and polyline close
+        // Use rawPos for distance checks so object snaps work regardless of grid snapping
         snapCandidates
-          .filter(c => c.type === 'endpoint' || c.type === 'midpoint' || c.type === 'door-midpoint' || c.type === 'window-midpoint')
+          .filter(c => c.type === 'endpoint' || c.type === 'midpoint' || c.type === 'door-midpoint' || c.type === 'window-midpoint' || c.type === 'close-polyline')
           .forEach(candidate => {
-            const d = distance(snappedPos, candidate);
+            const d = distance(rawPos, candidate);
             if (d < bestDist) {
               bestDist = d;
               bestSnap = candidate;
@@ -1516,7 +2133,7 @@ export const useCanvasInteraction = ({
           snapCandidates
             .filter(c => c.type === 'perpendicular')
             .forEach(candidate => {
-              const d = distance(snappedPos, candidate);
+              const d = distance(rawPos, candidate);
               if (d < bestDist) {
                 bestDist = d;
                 bestSnap = candidate;
@@ -1530,7 +2147,7 @@ export const useCanvasInteraction = ({
           snapCandidates
             .filter(c => c.type === 'nearest')
             .forEach(candidate => {
-              const d = distance(snappedPos, candidate);
+              const d = distance(rawPos, candidate);
               if (d < bestDist) {
                 bestDist = d;
                 bestSnap = candidate;
@@ -1552,9 +2169,9 @@ export const useCanvasInteraction = ({
 
         // Check for alignment guidelines
         let guidelines = null;
-        const alignPoints = snapCandidates.filter(c => c.type === 'endpoint' || c.type === 'midpoint' || c.type === 'door-midpoint' || c.type === 'window-midpoint');
+        const alignPoints = snapCandidates.filter(c => c.type === 'endpoint' || c.type === 'midpoint' || c.type === 'door-midpoint' || c.type === 'window-midpoint' || c.type === 'close-polyline');
 
-        if (bestSnap && (bestSnap.type === 'endpoint' || bestSnap.type === 'midpoint' || bestSnap.type === 'door-midpoint' || bestSnap.type === 'window-midpoint')) {
+        if (bestSnap && (bestSnap.type === 'endpoint' || bestSnap.type === 'midpoint' || bestSnap.type === 'door-midpoint' || bestSnap.type === 'window-midpoint' || bestSnap.type === 'close-polyline')) {
           // Snapped directly to a point - show guidelines through that point
           guidelines = [
             {
@@ -1626,7 +2243,7 @@ export const useCanvasInteraction = ({
     }
 
     // Hover snap detection - show snaps before starting to draw
-    if (!isDrawing && (tool === 'wall' || tool === 'door' || tool === 'window')) {
+    if (!isDrawing && (tool === 'wall' || tool === 'door' || tool === 'window' || tool === 'line' || tool === 'polyline' || tool === 'dimension' || tool === 'hatch')) {
       const pos = getPointerPos(e);
       let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
 
@@ -1637,7 +2254,7 @@ export const useCanvasInteraction = ({
       let bestSnap = null;
       let bestDist = POINT_SNAP_DIST;
 
-      // Check endpoints and midpoints
+      // Check endpoints and midpoints on walls
       walls.forEach(wall => {
         if (snaps.endpoint) {
           const dStart = distance(snappedPos, wall.start);
@@ -1665,6 +2282,77 @@ export const useCanvasInteraction = ({
         }
       });
 
+      // Check endpoints and midpoints on annotation lines
+      (activeFloor?.lines || []).forEach(line => {
+        if (!line.start || !line.end) return;
+
+        if (snaps.endpoint) {
+          const dStart = distance(snappedPos, line.start);
+          if (dStart < bestDist) {
+            bestDist = dStart;
+            bestSnap = { type: 'endpoint', point: { ...line.start }, line };
+          }
+          const dEnd = distance(snappedPos, line.end);
+          if (dEnd < bestDist) {
+            bestDist = dEnd;
+            bestSnap = { type: 'endpoint', point: { ...line.end }, line };
+          }
+        }
+
+        if (snaps.midpoint) {
+          const mid = {
+            x: (line.start.x + line.end.x) / 2,
+            y: (line.start.y + line.end.y) / 2
+          };
+          const dMid = distance(snappedPos, mid);
+          if (dMid < bestDist) {
+            bestDist = dMid;
+            bestSnap = { type: 'midpoint', point: mid, line };
+          }
+        }
+      });
+
+      // Check endpoints and midpoints on polylines
+      (activeFloor?.polylines || []).forEach(polyline => {
+        if (!polyline.points || polyline.points.length < 2) return;
+
+        // Snap to polyline vertices
+        if (snaps.endpoint) {
+          polyline.points.forEach(pt => {
+            const d = distance(snappedPos, pt);
+            if (d < bestDist) {
+              bestDist = d;
+              bestSnap = { type: 'endpoint', point: { ...pt }, polyline };
+            }
+          });
+        }
+
+        // Snap to segment midpoints
+        if (snaps.midpoint) {
+          for (let i = 0; i < polyline.points.length - 1; i++) {
+            const p1 = polyline.points[i];
+            const p2 = polyline.points[i + 1];
+            const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            const d = distance(snappedPos, mid);
+            if (d < bestDist) {
+              bestDist = d;
+              bestSnap = { type: 'midpoint', point: mid, polyline };
+            }
+          }
+          // If closed, check last-to-first segment midpoint
+          if (polyline.closed && polyline.points.length >= 2) {
+            const p1 = polyline.points[polyline.points.length - 1];
+            const p2 = polyline.points[0];
+            const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            const d = distance(snappedPos, mid);
+            if (d < bestDist) {
+              bestDist = d;
+              bestSnap = { type: 'midpoint', point: mid, polyline };
+            }
+          }
+        }
+      });
+
       // Check nearest point on walls if no point snap found
       if (!bestSnap && snaps.nearest) {
         bestDist = NEAREST_SNAP_DIST;
@@ -1674,6 +2362,38 @@ export const useCanvasInteraction = ({
           if (d < bestDist) {
             bestDist = d;
             bestSnap = { type: 'nearest', point: nearest, wall };
+          }
+        });
+
+        // Check nearest on annotation lines
+        (activeFloor?.lines || []).forEach(line => {
+          if (!line.start || !line.end) return;
+          const nearest = closestPointOnLine(snappedPos, line.start, line.end);
+          const d = distance(snappedPos, nearest);
+          if (d < bestDist) {
+            bestDist = d;
+            bestSnap = { type: 'nearest', point: nearest, line };
+          }
+        });
+
+        // Check nearest on polyline segments
+        (activeFloor?.polylines || []).forEach(polyline => {
+          if (!polyline.points || polyline.points.length < 2) return;
+          for (let i = 0; i < polyline.points.length - 1; i++) {
+            const nearest = closestPointOnLine(snappedPos, polyline.points[i], polyline.points[i + 1]);
+            const d = distance(snappedPos, nearest);
+            if (d < bestDist) {
+              bestDist = d;
+              bestSnap = { type: 'nearest', point: nearest, polyline };
+            }
+          }
+          if (polyline.closed && polyline.points.length >= 2) {
+            const nearest = closestPointOnLine(snappedPos, polyline.points[polyline.points.length - 1], polyline.points[0]);
+            const d = distance(snappedPos, nearest);
+            if (d < bestDist) {
+              bestDist = d;
+              bestSnap = { type: 'nearest', point: nearest, polyline };
+            }
           }
         });
       }
@@ -1711,9 +2431,10 @@ export const useCanvasInteraction = ({
       const walls = activeFloor?.walls || [];
 
       // Get the other endpoint of the wall being edited (to avoid snapping to self)
-      const otherEndpoint = activeGrip.endpoint === 'start'
-        ? activeGrip.wall.end
-        : activeGrip.wall.start;
+      // Use the stored original other endpoint for consistent guideline calculation
+      const otherEndpoint = activeGrip.originalOtherEndpoint || (
+        activeGrip.endpoint === 'start' ? activeGrip.wall.end : activeGrip.wall.start
+      );
 
       walls.forEach(wall => {
         // Skip the wall being edited
@@ -1816,6 +2537,120 @@ export const useCanvasInteraction = ({
       } else {
         setActiveSnap(null);
       }
+
+      // Generate grip alignment guidelines
+      const ALIGN_TOLERANCE = 12; // pixels tolerance for alignment
+      const gripGuidelines = [];
+
+      // Get original position (the endpoint we started dragging from)
+      // Must use the stored originalPosition since activeGrip.wall gets updated during drag
+      const originalPos = activeGrip.originalPosition;
+
+      // Only apply alignment snapping after moving at least 20 pixels from original
+      // This prevents the grip from being "stuck" at the start of a drag
+      const gripMovement = originalPos ? Math.sqrt(
+        Math.pow(snappedPos.x - originalPos.x, 2) +
+        Math.pow(snappedPos.y - originalPos.y, 2)
+      ) : 0;
+      const MIN_MOVEMENT_FOR_SNAP = 20;
+
+      // Only show guidelines if we have a valid original position and have moved enough
+      if (originalPos && gripMovement > MIN_MOVEMENT_FOR_SNAP) {
+        // Check horizontal alignment with original position
+        if (Math.abs(snappedPos.y - originalPos.y) < ALIGN_TOLERANCE) {
+          snappedPos.y = originalPos.y; // Snap to horizontal
+          gripGuidelines.push({
+            type: 'horizontal',
+            y: originalPos.y,
+            pointType: 'grip-align',
+            alignedPoint: { ...originalPos },
+            snappedTo: true
+          });
+        }
+
+        // Check vertical alignment with original position
+        if (Math.abs(snappedPos.x - originalPos.x) < ALIGN_TOLERANCE) {
+          snappedPos.x = originalPos.x; // Snap to vertical
+          gripGuidelines.push({
+            type: 'vertical',
+            x: originalPos.x,
+            pointType: 'grip-align',
+            alignedPoint: { ...originalPos },
+            snappedTo: true
+          });
+        }
+      }
+
+      // Check alignment along the wall direction (extension line)
+      // Use stored original wall angle for consistent guideline direction
+      // Only apply after moving enough to avoid locking at start
+      const originalWallAngle = activeGrip.originalWallAngle;
+
+      if (originalWallAngle !== undefined && originalWallAngle !== null && gripMovement > MIN_MOVEMENT_FOR_SNAP) {
+        // Use the stored original wall direction
+        const dirX = Math.cos(originalWallAngle);
+        const dirY = Math.sin(originalWallAngle);
+
+        // Vector from other endpoint to cursor
+        const toCursorX = snappedPos.x - otherEndpoint.x;
+        const toCursorY = snappedPos.y - otherEndpoint.y;
+
+        // Project cursor onto wall line
+        const projection = toCursorX * dirX + toCursorY * dirY;
+        const projectedX = otherEndpoint.x + projection * dirX;
+        const projectedY = otherEndpoint.y + projection * dirY;
+
+        // Distance from cursor to projected point (perpendicular distance to wall line)
+        const perpDist = Math.sqrt(
+          Math.pow(snappedPos.x - projectedX, 2) +
+          Math.pow(snappedPos.y - projectedY, 2)
+        );
+
+        // If close to the wall line extension, snap to it and show guideline
+        if (perpDist < ALIGN_TOLERANCE && perpDist > 0.1) {
+          snappedPos.x = projectedX;
+          snappedPos.y = projectedY;
+          gripGuidelines.push({
+            type: 'wall-extension',
+            start: otherEndpoint,
+            angle: originalWallAngle,
+            pointType: 'wall-align',
+            snappedTo: true
+          });
+        }
+      }
+
+      // Check alignment with the other endpoint (horizontal/vertical to other end)
+      // Only apply after moving enough
+      if (gripMovement > MIN_MOVEMENT_FOR_SNAP && Math.abs(snappedPos.y - otherEndpoint.y) < ALIGN_TOLERANCE) {
+        // Only snap if not already snapped horizontally
+        if (!gripGuidelines.some(g => g.type === 'horizontal')) {
+          snappedPos.y = otherEndpoint.y; // Snap to horizontal alignment with other endpoint
+          gripGuidelines.push({
+            type: 'horizontal',
+            y: otherEndpoint.y,
+            pointType: 'other-endpoint',
+            alignedPoint: otherEndpoint,
+            snappedTo: true
+          });
+        }
+      }
+      if (gripMovement > MIN_MOVEMENT_FOR_SNAP && Math.abs(snappedPos.x - otherEndpoint.x) < ALIGN_TOLERANCE) {
+        // Only snap if not already snapped vertically
+        if (!gripGuidelines.some(g => g.type === 'vertical')) {
+          snappedPos.x = otherEndpoint.x; // Snap to vertical alignment with other endpoint
+          gripGuidelines.push({
+            type: 'vertical',
+            x: otherEndpoint.x,
+            pointType: 'other-endpoint',
+            alignedPoint: otherEndpoint,
+            snappedTo: true
+          });
+        }
+      }
+
+      setSnapGuidelines(gripGuidelines.length > 0 ? gripGuidelines : null);
+      setGripCursorPosition(snappedPos); // Track cursor position for guideline rendering
 
       // Calculate the updated wall
       const updatedWall = {
@@ -2194,6 +3029,276 @@ export const useCanvasInteraction = ({
       return;
     }
 
+    // Handle grip dragging for polyline vertices
+    if (activeGrip && activeGrip.type === 'polyline' && tool === 'select') {
+      const pos = getPointerPos(e);
+      let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
+
+      // Snap to wall endpoints and other polyline vertices
+      const POINT_SNAP_DIST = isMobile ? 50 : 20;
+      const walls = activeFloor?.walls || [];
+      const snapCandidates = [];
+
+      if (snaps.endpoint) {
+        walls.forEach(wall => {
+          snapCandidates.push({ x: wall.start.x, y: wall.start.y, type: 'endpoint', wall });
+          snapCandidates.push({ x: wall.end.x, y: wall.end.y, type: 'endpoint', wall });
+        });
+
+        // Also snap to other polyline vertices (not the one being dragged)
+        (activeFloor?.polylines || []).forEach(pl => {
+          if (!pl.points) return;
+          pl.points.forEach((pt, idx) => {
+            // Skip the point being dragged
+            if (pl.id === activeGrip.polyline.id && idx === activeGrip.pointIndex) return;
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+          });
+        });
+      }
+
+      // Find best snap
+      let bestSnap = null;
+      let bestDist = POINT_SNAP_DIST;
+
+      snapCandidates.forEach(candidate => {
+        const d = distance(snappedPos, candidate);
+        if (d < bestDist) {
+          bestDist = d;
+          bestSnap = candidate;
+        }
+      });
+
+      if (bestSnap) {
+        snappedPos = { x: bestSnap.x, y: bestSnap.y };
+        setActiveSnap({
+          type: bestSnap.type,
+          point: { x: bestSnap.x, y: bestSnap.y },
+        });
+      } else {
+        setActiveSnap(null);
+      }
+
+      // Update the polyline vertex
+      const newPoints = activeGrip.polyline.points.map((pt, idx) =>
+        idx === activeGrip.pointIndex ? { x: snappedPos.x, y: snappedPos.y } : pt
+      );
+
+      const updatedPolyline = {
+        ...activeGrip.polyline,
+        points: newPoints,
+      };
+
+      updateActiveFloor(f => ({
+        ...f,
+        polylines: (f.polylines || []).map(pl =>
+          pl.id === activeGrip.polyline.id ? updatedPolyline : pl
+        ),
+      }));
+
+      // Update selectedItems to keep in sync
+      setSelectedItems(prev => prev.map(s => {
+        if (s.type === 'polyline' && s.item?.id === activeGrip.polyline.id) {
+          return { ...s, item: updatedPolyline };
+        }
+        return s;
+      }));
+
+      // Update activeGrip reference
+      setActiveGrip(prev => ({
+        ...prev,
+        polyline: updatedPolyline,
+      }));
+      return;
+    }
+
+    // Handle grip dragging for hatch vertices
+    if (activeGrip && activeGrip.type === 'hatch' && tool === 'select') {
+      const pos = getPointerPos(e);
+      let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
+
+      // Snap to wall endpoints and other vertices
+      const POINT_SNAP_DIST = isMobile ? 50 : 20;
+      const walls = activeFloor?.walls || [];
+      const snapCandidates = [];
+
+      if (snaps.endpoint) {
+        walls.forEach(wall => {
+          snapCandidates.push({ x: wall.start.x, y: wall.start.y, type: 'endpoint', wall });
+          snapCandidates.push({ x: wall.end.x, y: wall.end.y, type: 'endpoint', wall });
+        });
+
+        // Also snap to other hatch vertices (not the one being dragged)
+        (activeFloor?.hatches || []).forEach(h => {
+          if (!h.points) return;
+          h.points.forEach((pt, idx) => {
+            // Skip the point being dragged
+            if (h.id === activeGrip.hatch.id && idx === activeGrip.pointIndex) return;
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+          });
+        });
+
+        // Also snap to polyline vertices
+        (activeFloor?.polylines || []).forEach(pl => {
+          if (!pl.points) return;
+          pl.points.forEach(pt => {
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+          });
+        });
+      }
+
+      // Find best snap
+      let bestSnap = null;
+      let bestDist = POINT_SNAP_DIST;
+
+      snapCandidates.forEach(candidate => {
+        const d = distance(snappedPos, candidate);
+        if (d < bestDist) {
+          bestDist = d;
+          bestSnap = candidate;
+        }
+      });
+
+      if (bestSnap) {
+        snappedPos = { x: bestSnap.x, y: bestSnap.y };
+        setActiveSnap({
+          type: bestSnap.type,
+          point: { x: bestSnap.x, y: bestSnap.y },
+        });
+      } else {
+        setActiveSnap(null);
+      }
+
+      // Update the hatch vertex
+      const newPoints = activeGrip.hatch.points.map((pt, idx) =>
+        idx === activeGrip.pointIndex ? { x: snappedPos.x, y: snappedPos.y } : pt
+      );
+
+      const updatedHatch = {
+        ...activeGrip.hatch,
+        points: newPoints,
+      };
+
+      updateActiveFloor(f => ({
+        ...f,
+        hatches: (f.hatches || []).map(h =>
+          h.id === activeGrip.hatch.id ? updatedHatch : h
+        ),
+      }));
+
+      // Update selectedItems to keep in sync
+      setSelectedItems(prev => prev.map(s => {
+        if (s.type === 'hatch' && s.item?.id === activeGrip.hatch.id) {
+          return { ...s, item: updatedHatch };
+        }
+        return s;
+      }));
+
+      // Update activeGrip reference
+      setActiveGrip(prev => ({
+        ...prev,
+        hatch: updatedHatch,
+      }));
+      return;
+    }
+
+    // Handle grip dragging for room vertices
+    if (activeGrip && activeGrip.type === 'room' && tool === 'select') {
+      const pos = getPointerPos(e);
+      let snappedPos = snaps.grid ? { x: snap(pos.x), y: snap(pos.y) } : { ...pos };
+
+      // Snap to wall endpoints and other vertices
+      const POINT_SNAP_DIST = isMobile ? 50 : 20;
+      const walls = activeFloor?.walls || [];
+      const snapCandidates = [];
+
+      if (snaps.endpoint) {
+        walls.forEach(wall => {
+          snapCandidates.push({ x: wall.start.x, y: wall.start.y, type: 'endpoint', wall });
+          snapCandidates.push({ x: wall.end.x, y: wall.end.y, type: 'endpoint', wall });
+        });
+
+        // Also snap to other room vertices (not the one being dragged)
+        (activeFloor?.rooms || []).forEach(r => {
+          if (!r.points) return;
+          r.points.forEach((pt, idx) => {
+            // Skip the point being dragged
+            if (r.id === activeGrip.room.id && idx === activeGrip.pointIndex) return;
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+          });
+        });
+
+        // Also snap to hatch vertices
+        (activeFloor?.hatches || []).forEach(h => {
+          if (!h.points) return;
+          h.points.forEach(pt => {
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+          });
+        });
+
+        // Also snap to polyline vertices
+        (activeFloor?.polylines || []).forEach(pl => {
+          if (!pl.points) return;
+          pl.points.forEach(pt => {
+            snapCandidates.push({ x: pt.x, y: pt.y, type: 'endpoint' });
+          });
+        });
+      }
+
+      // Find best snap
+      let bestSnap = null;
+      let bestDist = POINT_SNAP_DIST;
+
+      snapCandidates.forEach(candidate => {
+        const d = distance(snappedPos, candidate);
+        if (d < bestDist) {
+          bestDist = d;
+          bestSnap = candidate;
+        }
+      });
+
+      if (bestSnap) {
+        snappedPos = { x: bestSnap.x, y: bestSnap.y };
+        setActiveSnap({
+          type: bestSnap.type,
+          point: { x: bestSnap.x, y: bestSnap.y },
+        });
+      } else {
+        setActiveSnap(null);
+      }
+
+      // Update the room vertex
+      const newPoints = activeGrip.room.points.map((pt, idx) =>
+        idx === activeGrip.pointIndex ? { x: snappedPos.x, y: snappedPos.y } : pt
+      );
+
+      const updatedRoom = {
+        ...activeGrip.room,
+        points: newPoints,
+      };
+
+      updateActiveFloor(f => ({
+        ...f,
+        rooms: (f.rooms || []).map(r =>
+          r.id === activeGrip.room.id ? updatedRoom : r
+        ),
+      }));
+
+      // Update selectedItems to keep in sync
+      setSelectedItems(prev => prev.map(s => {
+        if (s.type === 'room' && s.item?.id === activeGrip.room.id) {
+          return { ...s, item: updatedRoom };
+        }
+        return s;
+      }));
+
+      // Update activeGrip reference
+      setActiveGrip(prev => ({
+        ...prev,
+        room: updatedRoom,
+      }));
+      return;
+    }
+
     if (dragItem && tool === 'select') {
       const pos = getPointerPos(e);
       const itemType = selectedItems[0]?.type;
@@ -2269,7 +3374,85 @@ export const useCanvasInteraction = ({
           setActiveSnap(null);
         }
 
-        const updatedWall = { ...currentWall, start: newStart, end: newEnd };
+        // Generate alignment guidelines for wall dragging
+        const ALIGN_TOLERANCE = 12;
+        const dragGuidelines = [];
+        let snappedStart = { ...newStart };
+        let snappedEnd = { ...newEnd };
+
+        // Only apply alignment snapping after moving at least 20 pixels from original
+        // This prevents the wall from being "stuck" at the start of a drag
+        const totalMovement = dragOriginalPositions ? Math.sqrt(
+          Math.pow(newStart.x - dragOriginalPositions.start.x, 2) +
+          Math.pow(newStart.y - dragOriginalPositions.start.y, 2)
+        ) : 0;
+        const MIN_MOVEMENT_FOR_SNAP = 20;
+
+        if (dragOriginalPositions && totalMovement > MIN_MOVEMENT_FOR_SNAP) {
+          const origStart = dragOriginalPositions.start;
+          const origEnd = dragOriginalPositions.end;
+
+          // Check horizontal alignment for start point
+          if (Math.abs(newStart.y - origStart.y) < ALIGN_TOLERANCE) {
+            const snapDelta = origStart.y - newStart.y;
+            snappedStart.y = origStart.y;
+            snappedEnd.y = newEnd.y + snapDelta;
+            dragGuidelines.push({
+              type: 'horizontal',
+              y: origStart.y,
+              pointType: 'grip-align',
+              alignedPoint: { ...origStart },
+              snappedTo: true
+            });
+          }
+
+          // Check vertical alignment for start point
+          if (Math.abs(newStart.x - origStart.x) < ALIGN_TOLERANCE) {
+            const snapDelta = origStart.x - newStart.x;
+            snappedStart.x = origStart.x;
+            snappedEnd.x = newEnd.x + snapDelta;
+            dragGuidelines.push({
+              type: 'vertical',
+              x: origStart.x,
+              pointType: 'grip-align',
+              alignedPoint: { ...origStart },
+              snappedTo: true
+            });
+          }
+
+          // Check horizontal alignment for end point (only if start didn't snap horizontally)
+          if (!dragGuidelines.some(g => g.type === 'horizontal') && Math.abs(newEnd.y - origEnd.y) < ALIGN_TOLERANCE) {
+            const snapDelta = origEnd.y - newEnd.y;
+            snappedStart.y = newStart.y + snapDelta;
+            snappedEnd.y = origEnd.y;
+            dragGuidelines.push({
+              type: 'horizontal',
+              y: origEnd.y,
+              pointType: 'other-endpoint',
+              alignedPoint: { ...origEnd },
+              snappedTo: true
+            });
+          }
+
+          // Check vertical alignment for end point (only if start didn't snap vertically)
+          if (!dragGuidelines.some(g => g.type === 'vertical') && Math.abs(newEnd.x - origEnd.x) < ALIGN_TOLERANCE) {
+            const snapDelta = origEnd.x - newEnd.x;
+            snappedStart.x = newStart.x + snapDelta;
+            snappedEnd.x = origEnd.x;
+            dragGuidelines.push({
+              type: 'vertical',
+              x: origEnd.x,
+              pointType: 'other-endpoint',
+              alignedPoint: { ...origEnd },
+              snappedTo: true
+            });
+          }
+        }
+
+        setSnapGuidelines(dragGuidelines.length > 0 ? dragGuidelines : null);
+        setGripCursorPosition(snappedStart); // Use start point for guideline rendering
+
+        const updatedWall = { ...currentWall, start: snappedStart, end: snappedEnd };
 
         updateActiveFloor(f => ({
           ...f,
@@ -2383,7 +3566,7 @@ export const useCanvasInteraction = ({
       }
       // Note: dimensions and lines use grip editing for endpoints, not whole-item dragging
     }
-  }, [isPanning, isDrawing, drawStart, tool, getPointerPos, snap, snapAngle, dragItem, selectedItems, dragOffset, activeFloor, updateActiveFloor, pinchStart, setScale, setOffset, offset, canvasRef, isMobile, activeGrip, setSelectedItems, snaps]);
+  }, [isPanning, isDrawing, drawStart, tool, getPointerPos, snap, snapAngle, dragItem, selectedItems, dragOffset, activeFloor, updateActiveFloor, pinchStart, setScale, setOffset, offset, canvasRef, isMobile, activeGrip, setSelectedItems, snaps, polylinePoints, hatchPoints, roomPoints]);
 
   // Handle pointer up
   const handlePointerUp = useCallback((e) => {
@@ -2412,20 +3595,6 @@ export const useCanvasInteraction = ({
         };
         updateActiveFloor(f => ({ ...f, walls: [...f.walls, newWall] }));
         setSelectedItems([{ type: 'wall', item: newWall }]);
-        setSelectionSource?.('draw');
-      } else if (tool === 'room' && Math.abs(dx) > 10 && Math.abs(dy) > 10) {
-        // Create room
-        const newRoom = {
-          id: generateId(),
-          x: Math.min(drawStart.x, drawEnd.x),
-          y: Math.min(drawStart.y, drawEnd.y),
-          width: Math.abs(dx),
-          height: Math.abs(dy),
-          name: 'Room',
-          color: 'rgba(100, 200, 255, 0.15)',
-        };
-        updateActiveFloor(f => ({ ...f, rooms: [...(f.rooms || []), newRoom] }));
-        setSelectedItems([{ type: 'room', item: newRoom }]);
         setSelectionSource?.('draw');
       } else if (tool === 'roof' && Math.abs(dx) > 10 && Math.abs(dy) > 10) {
         // Create roof with points array (clockwise from top-left)
@@ -2474,6 +3643,10 @@ export const useCanvasInteraction = ({
         updateActiveFloor(f => ({ ...f, lines: [...(f.lines || []), newLine] }));
         setSelectedItems([{ type: 'line', item: newLine }]);
         setSelectionSource?.('draw');
+      } else if (tool === 'polyline') {
+        // Don't finish polyline on mouse up - wait for double-click or Escape
+        // Just keep the drawing state active
+        return;
       }
 
       setIsDrawing(false);
@@ -2481,6 +3654,8 @@ export const useCanvasInteraction = ({
       setDrawEnd(null);
       setSnapGuidelines(null);
       setActiveSnap(null);
+      setPolarAngle(null);
+      setStartingLineAngle(null);
     }
 
     // Snap items when drag ends - either to snap point or grid
@@ -2556,12 +3731,73 @@ export const useCanvasInteraction = ({
     }
 
     setDragItem(null);
-    // Clear active snap when dragging ends
+    setDragOriginalPositions(null);
+    // Clear active snap and guidelines when dragging ends
     if (activeGrip || dragItem) {
       setActiveSnap(null);
+      setSnapGuidelines(null);
+      setGripCursorPosition(null);
     }
     setActiveGrip(null);
   }, [isPanning, isDrawing, drawStart, drawEnd, tool, wallType, updateActiveFloor, setSelectedItems, pinchStart, activeGrip, dragItem, selectedItems, gridSize, snap, activeFloor, activeSnap]);
+
+  // Handle double-click - finish polyline
+  const handleDoubleClick = useCallback((e) => {
+    if (tool === 'polyline' && polylinePoints.length >= 2) {
+      // Finish the polyline
+      const newPolyline = {
+        id: generateId(),
+        points: [...polylinePoints],
+        lineType: 'solid',
+        color: '#00c8ff',
+        lineWidth: 1,
+        closed: false,
+      };
+      updateActiveFloor(f => ({ ...f, polylines: [...(f.polylines || []), newPolyline] }));
+      setSelectedItems([{ type: 'polyline', item: newPolyline }]);
+      setSelectionSource?.('draw');
+
+      // Reset polyline state
+      setPolylinePoints([]);
+      setIsDrawing(false);
+      setDrawEnd(null);
+      setSnapGuidelines(null);
+      setActiveSnap(null);
+    }
+  }, [tool, polylinePoints, updateActiveFloor, setSelectedItems, setSelectionSource]);
+
+  // Cancel polyline drawing (call this from parent on Escape key)
+  const cancelPolyline = useCallback(() => {
+    if (tool === 'polyline' && polylinePoints.length > 0) {
+      setPolylinePoints([]);
+      setIsDrawing(false);
+      setDrawEnd(null);
+      setSnapGuidelines(null);
+      setActiveSnap(null);
+    }
+  }, [tool, polylinePoints]);
+
+  // Cancel hatch drawing (call this from parent on Escape key)
+  const cancelHatch = useCallback(() => {
+    if (tool === 'hatch' && hatchPoints.length > 0) {
+      setHatchPoints([]);
+      setIsDrawing(false);
+      setDrawEnd(null);
+      setSnapGuidelines(null);
+      setActiveSnap(null);
+    }
+  }, [tool, hatchPoints]);
+
+  // Cancel room drawing (call this from parent on Escape key)
+  const cancelRoom = useCallback(() => {
+    if (tool === 'room' && roomPoints.length > 0) {
+      setRoomPoints([]);
+      setIsDrawing(false);
+      setDrawEnd(null);
+      setSnapGuidelines(null);
+      setActiveSnap(null);
+    }
+  }, [tool, roomPoints]);
 
   return {
     // State
@@ -2571,6 +3807,15 @@ export const useCanvasInteraction = ({
     isPanning,
     dragItem,
     activeGrip,
+
+    // Polyline state
+    polylinePoints,
+
+    // Hatch state
+    hatchPoints,
+
+    // Room state
+    roomPoints,
 
     // Move tool state
     moveBasePoint,
@@ -2585,10 +3830,21 @@ export const useCanvasInteraction = ({
     snapGuidelines,
     activeSnap,
 
+    // Polar tracking state
+    polarAngle,
+    startingLineAngle,
+
+    // Grip editing cursor position (for guideline rendering)
+    gripCursorPosition,
+
     // Event handlers
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    handleDoubleClick,
+    cancelPolyline,
+    cancelHatch,
+    cancelRoom,
 
     // Utilities
     screenToCanvas,

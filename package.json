@@ -16,6 +16,8 @@
     "build:mobile": "npm run build && npm run cap:sync"
   },
   "dependencies": {
+    "jspdf": "^4.0.0",
+    "pdfjs-dist": "^5.4.530",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

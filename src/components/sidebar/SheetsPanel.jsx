@@ -1,6 +1,122 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '../ui/Button';
 import { PAPER_SIZES } from '../../constants/paper';
+
+// Custom dropdown component for sheets panel
+const SheetDropdown = ({ value, options, onChange, onClick }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick?.(e);
+          setIsOpen(!isOpen);
+        }}
+        style={{
+          width: '100%',
+          padding: '4px 6px',
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: '4px',
+          color: '#fff',
+          fontSize: '9px',
+          cursor: 'pointer',
+          textAlign: 'left',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <span>{selectedOption?.label || value}</span>
+        <span style={{ fontSize: '8px', marginLeft: '4px' }}>{isOpen ? '▲' : '▼'}</span>
+      </button>
+
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: 0,
+            right: 0,
+            marginBottom: '2px',
+            background: '#1a2030',
+            border: '1px solid rgba(0,200,255,0.3)',
+            borderRadius: '4px',
+            boxShadow: '0 -4px 12px rgba(0,0,0,0.5)',
+            zIndex: 1000,
+          }}
+        >
+          {options.map((opt) => (
+            <div
+              key={opt.value}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange(opt.value);
+                setIsOpen(false);
+              }}
+              style={{
+                padding: '6px 8px',
+                color: opt.value === value ? '#00c8ff' : '#fff',
+                background: opt.value === value ? 'rgba(0,200,255,0.15)' : 'transparent',
+                cursor: 'pointer',
+                fontSize: '9px',
+              }}
+              onMouseEnter={(e) => {
+                if (opt.value !== value) {
+                  e.target.style.background = 'rgba(255,255,255,0.1)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = opt.value === value ? 'rgba(0,200,255,0.15)' : 'transparent';
+              }}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SIZE_OPTIONS = [
+  { value: 'letter', label: 'Letter' },
+  { value: 'legal', label: 'Legal' },
+  { value: 'tabloid', label: 'Tabloid' },
+  { value: 'arch-d', label: 'Arch D (24×36)' },
+];
+
+const SCALE_OPTIONS = [
+  { value: '1/8" = 1\'', label: '1/8" = 1\'' },
+  { value: '1/4" = 1\'', label: '1/4" = 1\'' },
+  { value: '3/8" = 1\'', label: '3/8" = 1\'' },
+  { value: '1/2" = 1\'', label: '1/2" = 1\'' },
+  { value: '1" = 1\'', label: '1" = 1\'' },
+];
 
 /**
  * SheetsPanel - Manage sheets and access Paper Space / Elevation views
@@ -157,7 +273,8 @@ export const SheetsPanel = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <input
                     type="text"
-                    value={sheet.sheetNumber || 'A01'}
+                    value={sheet.sheetNumber ?? ''}
+                    placeholder="A01"
                     onChange={(e) => {
                       e.stopPropagation();
                       onUpdateSheet(sheet.id, { sheetNumber: e.target.value });
@@ -177,7 +294,8 @@ export const SheetsPanel = ({
                   />
                   <input
                     type="text"
-                    value={sheet.sheetTitle || 'Floor Plan'}
+                    value={sheet.sheetTitle ?? ''}
+                    placeholder="Floor Plan"
                     onChange={(e) => {
                       e.stopPropagation();
                       onUpdateSheet(sheet.id, { sheetTitle: e.target.value });
@@ -211,49 +329,18 @@ export const SheetsPanel = ({
 
               {/* Sheet settings */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
-                <select
+                <SheetDropdown
                   value={sheet.size}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    onUpdateSheet(sheet.id, { size: e.target.value });
-                  }}
+                  options={SIZE_OPTIONS}
+                  onChange={(value) => onUpdateSheet(sheet.id, { size: value })}
                   onClick={(e) => e.stopPropagation()}
-                  style={{
-                    padding: '4px',
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '4px',
-                    color: '#fff',
-                    fontSize: '9px',
-                  }}
-                >
-                  <option value="letter">Letter</option>
-                  <option value="legal">Legal</option>
-                  <option value="tabloid">Tabloid</option>
-                  <option value="arch-d">Arch D (24×36)</option>
-                </select>
-                <select
+                />
+                <SheetDropdown
                   value={sheet.scale}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    onUpdateSheet(sheet.id, { scale: e.target.value });
-                  }}
+                  options={SCALE_OPTIONS}
+                  onChange={(value) => onUpdateSheet(sheet.id, { scale: value })}
                   onClick={(e) => e.stopPropagation()}
-                  style={{
-                    padding: '4px',
-                    background: 'rgba(255,255,255,0.05)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '4px',
-                    color: '#fff',
-                    fontSize: '9px',
-                  }}
-                >
-                  <option value="1/8&quot; = 1'">1/8" = 1'</option>
-                  <option value="1/4&quot; = 1'">1/4" = 1'</option>
-                  <option value="3/8&quot; = 1'">3/8" = 1'</option>
-                  <option value="1/2&quot; = 1'">1/2" = 1'</option>
-                  <option value="1&quot; = 1'">1" = 1'</option>
-                </select>
+                />
               </div>
 
               {/* Paper size info */}

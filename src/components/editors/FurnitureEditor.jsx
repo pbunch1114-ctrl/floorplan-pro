@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FloatingPanel, PanelSection } from '../ui/Panel';
 import { Button } from '../ui/Button';
 import { NumberInput, Slider } from '../ui/Input';
@@ -13,15 +13,21 @@ export const FurnitureEditor = ({
   onClose,
   x = 20,
   y = 100,
+  isMobile = false,
 }) => {
+  const [minimized, setMinimized] = useState(false);
+
   if (!furniture) return null;
 
   return (
     <FloatingPanel
       title={furniture.name || 'Furniture'}
       onClose={onClose}
+      onMinimize={() => setMinimized(!minimized)}
+      minimized={minimized}
       x={x}
       y={y}
+      isMobile={isMobile}
     >
       <div style={{ padding: '12px' }}>
         <PanelSection title="Dimensions">

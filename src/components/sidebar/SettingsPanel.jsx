@@ -2,6 +2,7 @@ import React from 'react';
 import { Panel, PanelSection } from '../ui/Panel';
 import { Select, Checkbox } from '../ui/Input';
 import { GRID_OPTIONS } from '../../constants/grid';
+import { FONT_STYLES } from '../../constants/styles';
 
 /**
  * SettingsPanel - Application settings
@@ -15,12 +16,16 @@ export const SettingsPanel = ({
   setAngleSnap,
   showDimensions,
   setShowDimensions,
+  showTempDimensions,
+  setShowTempDimensions,
   showGrips,
   setShowGrips,
   thinLines,
   setThinLines,
   wallDetailLevel,
   setWallDetailLevel,
+  fontStyle,
+  setFontStyle,
   snaps = {},
   setSnaps,
   onClose,
@@ -61,6 +66,11 @@ export const SettingsPanel = ({
     { value: 'detailed', label: 'Detailed' },
   ];
 
+  const fontStyleOptions = Object.entries(FONT_STYLES).map(([key, val]) => ({
+    value: key,
+    label: val.name,
+  }));
+
   return (
     <Panel
       title="Settings"
@@ -96,6 +106,11 @@ export const SettingsPanel = ({
           onChange={setShowDimensions}
         />
         <Checkbox
+          label="Show Wall Lengths"
+          checked={showTempDimensions}
+          onChange={setShowTempDimensions}
+        />
+        <Checkbox
           label="Show Grips"
           checked={showGrips}
           onChange={setShowGrips}
@@ -110,6 +125,12 @@ export const SettingsPanel = ({
           value={wallDetailLevel}
           onChange={setWallDetailLevel}
           options={wallDetailOptions}
+        />
+        <Select
+          label="Text Style"
+          value={fontStyle}
+          onChange={setFontStyle}
+          options={fontStyleOptions}
         />
       </PanelSection>
 

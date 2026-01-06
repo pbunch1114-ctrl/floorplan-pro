@@ -5,11 +5,20 @@ import { useLayers } from './hooks/useLayers';
 import { useCanvasInteraction } from './hooks/useCanvasInteraction';
 import { Toolbar, MobileToolbar } from './components/toolbar';
 import { FurnitureLibrary, StairsLibrary, ElectricalLibrary, PlumbingLibrary, LayersPanel, SheetsPanel, SettingsPanel } from './components/sidebar';
-import { WallEditor, RoofEditor, DoorEditor, WindowEditor, FurnitureEditor, TextEditor, TempDimensionEditor, WallTempDimensionEditor } from './components/editors';
+import { WallEditor, RoofEditor, DoorEditor, WindowEditor, FurnitureEditor, TextEditor, PolylineEditor, HatchEditor, RoomEditor, TempDimensionEditor, WallTempDimensionEditor } from './components/editors';
 import { Button } from './components/ui';
 import { FloorPlanCanvas } from './components/canvas';
 import { ElevationView, ThreeDView, PaperSpaceView } from './components/views';
-import { FileMenu, MobileMenu } from './components/menu';
+import { FileMenu, MobileMenu, SaveDialog, RecentProjects } from './components/menu';
+import { MaterialCalculator } from './components/Materials';
+import { saveAutoSave, loadAutoSave, addToRecentProjects, getSavedProjectName, clearAutoSave, hasAutoSave } from './utils/storage';
+import { calculateTotalFloorArea } from './utils/materialCalculations';
+import { PDFImporter, PDFControls } from './components/pdf/PDFImporter';
+import { ScaleCalibration } from './components/pdf/ScaleCalibration';
+import { AnnotationToolbar, StampSelector, AnnotationSettingsPanel, CalloutNotesPanel } from './components/annotation';
+import { useAnnotationTool } from './hooks/useAnnotationTool';
+import { ExportModal } from './components/export';
+import { exportToPDF, exportToPNG, exportToJPEG } from './utils/exportPDF';
 import { formatMeasurement } from './utils/measurements';
 import { createDefaultSheet } from './constants/paper';
 
@@ -67,6 +76,18 @@ function App() {
     newFile,
     exportToJSON,
     importFromJSON,
+    pdfLayer,
+    importPdfLayer,
+    updatePdfLayer,
+    removePdfLayer,
+    calibratePdfScale,
+    annotations,
+    annotationSettings,
+    addAnnotation,
+    updateAnnotation,
+    removeAnnotation,
+    clearAnnotations,
+    updateAnnotationSettings,
   } = useFloorPlan();
 
   // Canvas ref
@@ -95,6 +116,7 @@ function App() {
     layers,
     toggleVisibility,
     toggleLock,
+    setColor,
     showAll,
     hideAll,
     isVisible,
@@ -109,8 +131,10 @@ function App() {
   const [gridSize, setGridSize] = useState('6"');
   const [angleSnap, setAngleSnap] = useState('45');
   const [showDimensions, setShowDimensions] = useState(true);
+  const [showTempDimensions, setShowTempDimensions] = useState(true);
   const [showGrips, setShowGrips] = useState(true);
   const [thinLines, setThinLines] = useState(false);
+  const [fontStyle, setFontStyle] = useState('modern');
 
   // Snap settings - which snap types are enabled
   const [snaps, setSnaps] = useState({
@@ -125,6 +149,9 @@ function App() {
   // On mobile, we defer showing editors for 'draw' selections to avoid interrupting workflow
   const [selectionSource, setSelectionSource] = useState(null);
 
+  // Track selected vertex index for polyline/hatch editors (for visual highlighting on canvas)
+  const [selectedVertexIndex, setSelectedVertexIndex] = useState(null);
+
   // Canvas interaction
   const {
     isDrawing,
@@ -138,9 +165,18 @@ function App() {
     rotatePreviewAngle,
     snapGuidelines,
     activeSnap,
+    polarAngle,
+    gripCursorPosition,
+    polylinePoints,
+    hatchPoints,
+    roomPoints,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    handleDoubleClick,
+    cancelPolyline,
+    cancelHatch,
+    cancelRoom,
   } = useCanvasInteraction({
     activeFloor,
     updateActiveFloor,
@@ -166,6 +202,40 @@ function App() {
   const [activePanel, setActivePanel] = useState(null);
   const [viewMode, setViewMode] = useState('model'); // 'model', 'paper', or 'elevations'
   const [show3D, setShow3D] = useState(false);
+  const [showScaleCalibration, setShowScaleCalibration] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showRecentProjects, setShowRecentProjects] = useState(false);
+  const [showMaterialCalculator, setShowMaterialCalculator] = useState(false);
+  const [projectName, setProjectName] = useState(() => getSavedProjectName());
+  const [hasRestoredAutoSave, setHasRestoredAutoSave] = useState(false);
+
+  // Annotation state
+  const [selectedAnnotationIds, setSelectedAnnotationIds] = useState([]);
+  const [annotationMode, setAnnotationMode] = useState(false); // Whether annotation tools are active
+
+  // Annotation tool hook
+  const {
+    isDrawing: isDrawingAnnotation,
+    drawingAnnotation,
+    handleAnnotationPointerDown,
+    handleAnnotationPointerMove,
+    handleAnnotationPointerUp,
+    handleAnnotationDoubleClick,
+    deleteSelectedAnnotations,
+  } = useAnnotationTool({
+    annotations,
+    addAnnotation,
+    updateAnnotation,
+    removeAnnotation,
+    annotationSettings,
+    selectedAnnotations: selectedAnnotationIds,
+    setSelectedAnnotations: setSelectedAnnotationIds,
+    scale: zoom,
+    setScale: setZoom,
+    offset,
+    setOffset,
+    canvasRef,
+  });
 
   // Units
   const [units, setUnits] = useState('imperial');
@@ -205,6 +275,32 @@ function App() {
 
   // Get currently selected item
   const selectedItem = selectedItems.length === 1 ? selectedItems[0] : null;
+
+  // Auto-restore from localStorage on initial load
+  useEffect(() => {
+    if (hasRestoredAutoSave) return;
+
+    const saved = loadAutoSave();
+    if (saved && saved.data) {
+      try {
+        if (importFromJSON(saved.data)) {
+          setProjectName(saved.projectName || 'floorplan');
+          console.log('Restored auto-saved project:', saved.projectName);
+        }
+      } catch (e) {
+        console.warn('Failed to restore auto-save:', e);
+      }
+    }
+    setHasRestoredAutoSave(true);
+  }, [hasRestoredAutoSave, importFromJSON]);
+
+  // Auto-save to localStorage when floor plan changes
+  useEffect(() => {
+    if (!hasRestoredAutoSave) return; // Don't save until we've tried to restore
+
+    const data = exportToJSON();
+    saveAutoSave(data, projectName);
+  }, [floors, pdfLayer, annotations, annotationSettings, projectName, hasRestoredAutoSave, exportToJSON]);
 
   // Format measurement based on units
   const formatMeasurementFn = useCallback((feet) => {
@@ -295,8 +391,12 @@ function App() {
         updateActiveFloor(f => ({ ...f, dimensions: (f.dimensions || []).filter(d => d.id !== itemId) }));
       } else if (type === 'line') {
         updateActiveFloor(f => ({ ...f, lines: (f.lines || []).filter(l => l.id !== itemId) }));
+      } else if (type === 'polyline') {
+        updateActiveFloor(f => ({ ...f, polylines: (f.polylines || []).filter(p => p.id !== itemId) }));
       } else if (type === 'text') {
         updateActiveFloor(f => ({ ...f, texts: (f.texts || []).filter(t => t.id !== itemId) }));
+      } else if (type === 'hatch') {
+        updateActiveFloor(f => ({ ...f, hatches: (f.hatches || []).filter(h => h.id !== itemId) }));
       }
     });
 
@@ -332,7 +432,13 @@ function App() {
 
       // Delete
       if (key === 'delete' || key === 'backspace') {
-        if (selectedItems.length > 0) {
+        // Delete selected annotations if any
+        if (selectedAnnotationIds.length > 0) {
+          deleteSelectedAnnotations();
+          e.preventDefault();
+        }
+        // Delete selected floor plan items if any
+        else if (selectedItems.length > 0) {
           deleteSelected(selectedItems);
           e.preventDefault();
         }
@@ -341,20 +447,30 @@ function App() {
       // Save
       if ((e.ctrlKey || e.metaKey) && key === 's') {
         e.preventDefault();
-        const data = exportToJSON();
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'floorplan.json';
-        a.click();
-        URL.revokeObjectURL(url);
+        setShowSaveDialog(true);
+      }
+
+      // Escape - cancel polyline/hatch/room drawing or deselect
+      if (key === 'escape') {
+        if (polylinePoints.length > 0) {
+          cancelPolyline();
+          e.preventDefault();
+        } else if (hatchPoints.length > 0) {
+          cancelHatch();
+          e.preventDefault();
+        } else if (roomPoints.length > 0) {
+          cancelRoom();
+          e.preventDefault();
+        } else if (selectedItems.length > 0) {
+          setSelectedItems([]);
+          e.preventDefault();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, selectedItems, deleteSelected, exportToJSON]);
+  }, [undo, redo, selectedItems, deleteSelected, exportToJSON, selectedAnnotationIds, deleteSelectedAnnotations, polylinePoints, cancelPolyline, hatchPoints, cancelHatch, roomPoints, cancelRoom, setSelectedItems]);
 
   // Close panels when clicking outside
   const handleBackgroundClick = useCallback(() => {
@@ -371,32 +487,66 @@ function App() {
   const handleNewFile = useCallback(() => {
     if (confirm('Create a new project? Unsaved changes will be lost.')) {
       newFile();
+      setProjectName('floorplan');
+      clearAutoSave();
     }
   }, [newFile]);
 
   const handleSaveFile = useCallback(() => {
+    // Show the save dialog to let user enter a filename
+    setShowSaveDialog(true);
+  }, []);
+
+  const handleSaveWithName = useCallback((name) => {
     const data = exportToJSON();
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `floorplan-${Date.now()}.json`;
+    a.download = `${name}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setProjectName(name);
+    setShowSaveDialog(false);
+    // Add to recent projects
+    addToRecentProjects(name, data);
   }, [exportToJSON]);
 
-  const handleLoadFile = useCallback((jsonData) => {
+  const handleLoadFile = useCallback((jsonData, loadedProjectName = null) => {
     if (importFromJSON(jsonData)) {
-      alert('Project loaded successfully!');
+      if (loadedProjectName) {
+        setProjectName(loadedProjectName);
+      }
+      setShowRecentProjects(false);
     } else {
       alert('Failed to load project. Invalid file format.');
     }
   }, [importFromJSON]);
 
-  const handleExportPNG = useCallback(() => {
-    // TODO: Implement PNG export from canvas
-    alert('PNG export coming soon!');
-  }, []);
+  const handleLoadFromRecent = useCallback((jsonData, recentProjectName) => {
+    handleLoadFile(jsonData, recentProjectName);
+  }, [handleLoadFile]);
+
+  const handleExport = useCallback(async (options) => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      alert('No canvas to export');
+      return;
+    }
+
+    try {
+      if (options.format === 'pdf') {
+        await exportToPDF(canvas, options);
+      } else if (options.format === 'png') {
+        exportToPNG(canvas, { projectName: options.projectName, scale: options.imageScale });
+      } else if (options.format === 'jpeg') {
+        exportToJPEG(canvas, { projectName: options.projectName, quality: options.jpegQuality });
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Export failed. Please try again.');
+    }
+  }, [canvasRef]);
 
   const handlePrint = useCallback(() => {
     window.print();
@@ -422,26 +572,46 @@ function App() {
           onMenuToggle={() => setShowMobileMenu(!showMobileMenu)}
           onUndo={undo}
           onRedo={redo}
-          onDelete={() => deleteSelected(selectedItems)}
+          onDelete={() => {
+            if (selectedAnnotationIds.length > 0) {
+              deleteSelectedAnnotations();
+            } else if (selectedItems.length > 0) {
+              deleteSelected(selectedItems);
+            }
+          }}
           canUndo={canUndo}
           canRedo={canRedo}
-          hasSelection={selectedItems.length > 0}
+          hasSelection={selectedItems.length > 0 || selectedAnnotationIds.length > 0}
           activeTab={toolTab}
-          onTabChange={setToolTab}
+          onTabChange={(tab) => {
+            setToolTab(tab);
+            setAnnotationMode(tab === 'markup');
+          }}
           onShowLayers={() => setActivePanel('layers')}
           onShowSettings={() => setActivePanel(activePanel === 'settings' ? null : 'settings')}
+          onShowFurniture={() => setActivePanel(activePanel === 'furniture' ? null : 'furniture')}
           onShow3D={() => setShow3D(!show3D)}
           onShowElevations={() => setViewMode('elevations')}
+          onShowStamps={() => setActivePanel('stamps')}
+          onShowAnnotationSettings={() => setActivePanel('annotation-settings')}
+          onShowCalloutNotes={() => setActivePanel('callout-notes')}
           onZoomIn={zoomIn}
           onZoomOut={zoomOut}
           onResetView={fitToContent}
+          panelOpen={activePanel !== null}
         />
       ) : (
         <Toolbar
           tool={tool}
           onToolChange={setTool}
           toolTab={toolTab}
-          onToolTabChange={setToolTab}
+          onToolTabChange={(tab) => {
+            setToolTab(tab);
+            setAnnotationMode(tab === 'markup');
+          }}
+          onShowStamps={() => setActivePanel('stamps')}
+          onShowAnnotationSettings={() => setActivePanel('annotation-settings')}
+          onShowCalloutNotes={() => setActivePanel('callout-notes')}
           wallType={wallType}
           onWallTypeChange={setWallType}
           isMobile={isMobile}
@@ -453,7 +623,6 @@ function App() {
         flex: 1,
         position: 'relative',
         overflow: 'hidden',
-        marginBottom: isMobile ? '50px' : 0, // Account for fixed bottom toolbar on mobile
       }}>
         {/* Floor Plan Canvas */}
         <FloorPlanCanvas
@@ -469,6 +638,10 @@ function App() {
           isDrawing={isDrawing}
           drawStart={drawStart}
           drawEnd={drawEnd}
+          polylinePoints={polylinePoints}
+          hatchPoints={hatchPoints}
+          roomPoints={roomPoints}
+          selectedVertexIndex={selectedVertexIndex}
           moveBasePoint={moveBasePoint}
           movePreviewPoint={movePreviewPoint}
           rotateCenter={rotateCenter}
@@ -476,15 +649,25 @@ function App() {
           rotatePreviewAngle={rotatePreviewAngle}
           snapGuidelines={snapGuidelines}
           activeSnap={activeSnap}
+          polarAngle={polarAngle}
+          gripCursorPosition={gripCursorPosition}
           units={units}
           gridSize={gridSize}
           showDimensions={showDimensions}
+          showTempDimensions={showTempDimensions}
           showGrips={showGrips}
+          fontStyle={fontStyle}
           isMobile={isMobile}
           layers={layers}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
+          pdfLayer={pdfLayer}
+          annotations={annotations}
+          selectedAnnotationIds={selectedAnnotationIds}
+          drawingAnnotation={drawingAnnotation}
+          annotationsAboveFloorPlan={annotationSettings.aboveFloorPlan}
+          onPointerDown={annotationMode && tool.startsWith('annotation-') ? (e) => handleAnnotationPointerDown(e, tool) : handlePointerDown}
+          onPointerMove={annotationMode && tool.startsWith('annotation-') ? (e) => handleAnnotationPointerMove(e, tool) : handlePointerMove}
+          onPointerUp={annotationMode && tool.startsWith('annotation-') ? (e) => handleAnnotationPointerUp(e, tool) : handlePointerUp}
+          onDoubleClick={handleDoubleClick}
           onWheel={onWheel}
         />
 
@@ -736,7 +919,12 @@ function App() {
               right: 16,
               display: 'flex',
               flexDirection: 'column',
-              gap: '8px',
+              gap: '6px',
+              background: 'rgba(12,18,24,0.95)',
+              padding: '8px',
+              borderRadius: '10px',
+              border: '1px solid rgba(0,200,255,0.2)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
             }}
           >
             <Button variant="default" onClick={zoomIn} title="Zoom In">+</Button>
@@ -751,11 +939,21 @@ function App() {
             <Button variant="default" onClick={() => setActivePanel('furniture')} title="Furniture">
               🪑
             </Button>
+            <Button
+              variant={pdfLayer?.dataUrl ? 'primary' : 'default'}
+              onClick={() => setActivePanel(pdfLayer?.dataUrl ? 'pdf-controls' : 'pdf-import')}
+              title={pdfLayer?.dataUrl ? 'PDF Controls' : 'Import PDF'}
+            >
+              📄
+            </Button>
             <Button variant="default" onClick={() => setViewMode('elevations')} title="Elevation Views">
               📐
             </Button>
             <Button variant="default" onClick={() => setShow3D(!show3D)} title="3D View">
               🧊
+            </Button>
+            <Button variant="default" onClick={() => setShowMaterialCalculator(true)} title="Material Calculator">
+              🧮
             </Button>
           </div>
         )}
@@ -768,7 +966,12 @@ function App() {
               bottom: 60,
               left: 16,
               display: 'flex',
-              gap: '8px',
+              gap: '6px',
+              background: 'rgba(12,18,24,0.95)',
+              padding: '8px',
+              borderRadius: '10px',
+              border: '1px solid rgba(0,200,255,0.2)',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
             }}
           >
             <Button
@@ -841,6 +1044,7 @@ function App() {
             layers={layers}
             onToggleVisibility={toggleVisibility}
             onToggleLock={toggleLock}
+            onSetColor={setColor}
             onShowAll={showAll}
             onHideAll={hideAll}
             onClose={() => setActivePanel(null)}
@@ -857,12 +1061,16 @@ function App() {
             setAngleSnap={setAngleSnap}
             showDimensions={showDimensions}
             setShowDimensions={setShowDimensions}
+            showTempDimensions={showTempDimensions}
+            setShowTempDimensions={setShowTempDimensions}
             showGrips={showGrips}
             setShowGrips={setShowGrips}
             thinLines={thinLines}
             setThinLines={setThinLines}
             wallDetailLevel={wallDetailLevel}
             setWallDetailLevel={setWallDetailLevel}
+            fontStyle={fontStyle}
+            setFontStyle={setFontStyle}
             snaps={snaps}
             setSnaps={setSnaps}
             onClose={() => setActivePanel(null)}
@@ -883,6 +1091,129 @@ function App() {
             isMobile={isMobile}
           />
         )}
+
+        {/* PDF Import Panel */}
+        {activePanel === 'pdf-import' && (
+          <PDFImporter
+            onImport={(pdfData) => {
+              importPdfLayer(pdfData);
+              setActivePanel(null);
+              // Prompt to calibrate scale after import
+              setShowScaleCalibration(true);
+            }}
+            onClose={() => setActivePanel(null)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* PDF Controls Panel */}
+        {activePanel === 'pdf-controls' && pdfLayer?.dataUrl && (
+          <PDFControls
+            pdfLayer={pdfLayer}
+            onUpdate={updatePdfLayer}
+            onRemove={() => {
+              removePdfLayer();
+              setActivePanel(null);
+            }}
+            onRecalibrate={() => setShowScaleCalibration(true)}
+            onClose={() => setActivePanel(null)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Scale Calibration Panel */}
+        {showScaleCalibration && pdfLayer?.dataUrl && (
+          <ScaleCalibration
+            pdfLayer={pdfLayer}
+            canvasRef={canvasRef}
+            scale={zoom}
+            offset={offset}
+            onCalibrate={calibratePdfScale}
+            onClose={() => setShowScaleCalibration(false)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Stamp Selector Panel */}
+        {activePanel === 'stamps' && (
+          <StampSelector
+            selectedStamp={annotationSettings.stampType}
+            onSelect={(stampType) => {
+              updateAnnotationSettings({ stampType });
+              setTool('annotation-stamp');
+              setActivePanel(null);
+            }}
+            onClose={() => setActivePanel(null)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Annotation Settings Panel */}
+        {activePanel === 'annotation-settings' && (
+          <AnnotationSettingsPanel
+            settings={annotationSettings}
+            onSettingsChange={updateAnnotationSettings}
+            onClose={() => setActivePanel(null)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Callout Notes Panel */}
+        {activePanel === 'callout-notes' && (
+          <CalloutNotesPanel
+            annotations={annotations}
+            onUpdateAnnotation={updateAnnotation}
+            onClose={() => setActivePanel(null)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Export Modal */}
+        {activePanel === 'export' && (
+          <ExportModal
+            onExport={handleExport}
+            onClose={() => setActivePanel(null)}
+            isMobile={isMobile}
+            projectName={projectName}
+            companyName=""
+          />
+        )}
+
+        {/* Save Dialog */}
+        {showSaveDialog && (
+          <SaveDialog
+            defaultName={projectName}
+            onSave={handleSaveWithName}
+            onClose={() => setShowSaveDialog(false)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Recent Projects Panel */}
+        {showRecentProjects && (
+          <RecentProjects
+            onLoad={handleLoadFromRecent}
+            onClose={() => setShowRecentProjects(false)}
+            isMobile={isMobile}
+          />
+        )}
+
+        {/* Material Calculator */}
+        {showMaterialCalculator && (() => {
+          // Scale: GRID_SIZE (20) pixels = 6 inches = 0.5 feet, so 40 pixels = 1 foot
+          const PIXELS_PER_FOOT = 40;
+          const floorArea = calculateTotalFloorArea(activeFloor?.walls || [], PIXELS_PER_FOOT);
+          return (
+            <MaterialCalculator
+              sqft={floorArea.sqft}
+              perimeter={floorArea.perimeter}
+              walls={activeFloor?.walls || []}
+              source={activeFloor?.walls?.length > 0 ? 'all' : 'manual'}
+              onClose={() => setShowMaterialCalculator(false)}
+              isMobile={isMobile}
+            />
+          );
+        })()}
 
         {/* Property editors for selected items */}
         {/* On mobile, defer showing editors for just-drawn items to avoid interrupting workflow */}
@@ -961,6 +1292,13 @@ function App() {
                   furn.id === selectedItem.item.id ? { ...furn, ...updates } : furn
                 )
               }));
+              // Also update selectedItems to keep the editor in sync
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'furniture' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
             }}
             onDelete={() => deleteSelected(selectedItems)}
             isMobile={isMobile}
@@ -1005,6 +1343,75 @@ function App() {
             isMobile={isMobile}
           />
         )}
+        {selectedItem?.type === 'polyline' && (!isMobile || selectionSource === 'click') && (
+          <PolylineEditor
+            polyline={selectedItem.item}
+            onUpdate={(updates) => {
+              updateActiveFloor(f => ({
+                ...f,
+                polylines: (f.polylines || []).map(p =>
+                  p.id === selectedItem.item.id ? { ...p, ...updates } : p
+                )
+              }));
+              // Also update selectedItems to keep the editor in sync
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'polyline' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+            onDelete={() => deleteSelected(selectedItems)}
+            onVertexSelect={setSelectedVertexIndex}
+            isMobile={isMobile}
+          />
+        )}
+        {selectedItem?.type === 'hatch' && (!isMobile || selectionSource === 'click') && (
+          <HatchEditor
+            hatch={selectedItem.item}
+            onUpdate={(updates) => {
+              updateActiveFloor(f => ({
+                ...f,
+                hatches: (f.hatches || []).map(h =>
+                  h.id === selectedItem.item.id ? { ...h, ...updates } : h
+                )
+              }));
+              // Also update selectedItems to keep the editor in sync
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'hatch' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+            onDelete={() => deleteSelected(selectedItems)}
+            onVertexSelect={setSelectedVertexIndex}
+            isMobile={isMobile}
+          />
+        )}
+        {selectedItem?.type === 'room' && (!isMobile || selectionSource === 'click') && (
+          <RoomEditor
+            room={selectedItem.item}
+            onUpdate={(updates) => {
+              updateActiveFloor(f => ({
+                ...f,
+                rooms: (f.rooms || []).map(r =>
+                  r.id === selectedItem.item.id ? { ...r, ...updates } : r
+                )
+              }));
+              // Also update selectedItems to keep the editor in sync
+              setSelectedItems(prev => prev.map(s => {
+                if (s.type === 'room' && s.item?.id === selectedItem.item.id) {
+                  return { ...s, item: { ...s.item, ...updates } };
+                }
+                return s;
+              }));
+            }}
+            onDelete={() => deleteSelected(selectedItems)}
+            onVertexSelect={setSelectedVertexIndex}
+            isMobile={isMobile}
+          />
+        )}
 
         {/* 3D View */}
         {show3D && (
@@ -1035,7 +1442,8 @@ function App() {
             onNew={handleNewFile}
             onSave={handleSaveFile}
             onLoad={handleLoadFile}
-            onExportPNG={handleExportPNG}
+            onRecent={() => setShowRecentProjects(true)}
+            onExport={() => setActivePanel('export')}
             onPrint={handlePrint}
             isMobile={isMobile}
           />
@@ -1111,12 +1519,17 @@ function App() {
         onShowLayers={() => setActivePanel('layers')}
         onShow3D={() => setShow3D(!show3D)}
         onShowSettings={() => setActivePanel('settings')}
+        onShowPdf={() => setActivePanel(pdfLayer?.dataUrl ? 'pdf-controls' : 'pdf-import')}
+        onShowMaterials={() => setShowMaterialCalculator(true)}
+        onExport={() => setActivePanel('export')}
         onSave={handleSaveFile}
         onLoad={handleLoadFile}
         onNew={handleNewFile}
+        onRecent={() => setShowRecentProjects(true)}
         show3D={show3D}
         showLayersPanel={activePanel === 'layers'}
         showSheetsPanel={activePanel === 'sheets'}
+        hasPdf={!!pdfLayer?.dataUrl}
       />
     </div>
   );

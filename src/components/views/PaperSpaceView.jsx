@@ -163,12 +163,15 @@ const PaperSpaceView = ({
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
 
-    // Drawing area (leave room for title block)
+    // Drawing area - center the floor plan in the main sheet area
+    // Title block is in lower right, so we center in the remaining space
     const titleBlockWidth = 320;
+    const titleBlockHeight = 140;
     const margin = 40;
-    const drawAreaWidth = w - margin * 2 - titleBlockWidth - 20;
-    const drawAreaCenterX = margin + drawAreaWidth / 2;
-    const drawAreaCenterY = h / 2;
+    // Center horizontally in the full sheet width (title block overlaps lower-right)
+    const drawAreaCenterX = w / 2;
+    // Center vertically, but bias slightly up to avoid title block area
+    const drawAreaCenterY = (h - titleBlockHeight) / 2 + margin / 2;
 
     ctx.save();
     ctx.translate(drawAreaCenterX, drawAreaCenterY);
@@ -198,6 +201,9 @@ const PaperSpaceView = ({
       const angle = Math.atan2(dy, dx);
       const thickness = wall.type === 'exterior' ? 8 : 4;
       const doorWidth = door.width || 36;
+      const doorType = door.type || 'single';
+      const swing = door.swing || 'left';
+      const openDir = (door.openDirection || 'inward') === 'inward' ? 1 : -1;
 
       ctx.save();
       ctx.translate(pos.x, pos.y);
@@ -207,22 +213,122 @@ const PaperSpaceView = ({
       ctx.fillStyle = '#fff';
       ctx.fillRect(-doorWidth / 2 - 1, -thickness / 2 - 4, doorWidth + 2, thickness + 8);
 
-      // Door arc
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 1;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.arc(-doorWidth / 2, thickness / 2 + 2, doorWidth, -Math.PI / 2, 0);
-      ctx.stroke();
-      ctx.setLineDash([]);
 
-      // Door panel
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(-doorWidth / 2, thickness / 2 + 2);
-      ctx.lineTo(-doorWidth / 2, thickness / 2 + 2 - doorWidth);
-      ctx.stroke();
+      if (doorType === 'double' || doorType === 'french') {
+        // Double door - two panels swinging from edges toward center
+        const panelWidth = doorWidth / 2;
+        const hingeY = openDir === 1 ? thickness / 2 : -thickness / 2;
+
+        // Left panel arc
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        if (openDir === 1) {
+          ctx.arc(-doorWidth / 2, hingeY, panelWidth, 0, Math.PI / 2);
+        } else {
+          ctx.arc(-doorWidth / 2, hingeY, panelWidth, -Math.PI / 2, 0);
+        }
+        ctx.stroke();
+
+        // Right panel arc (mirrored)
+        ctx.beginPath();
+        if (openDir === 1) {
+          ctx.arc(doorWidth / 2, hingeY, panelWidth, Math.PI / 2, Math.PI);
+        } else {
+          ctx.arc(doorWidth / 2, hingeY, panelWidth, -Math.PI, -Math.PI / 2);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Left door panel line (at 90 degrees open)
+        const leftPanelEndX = -doorWidth / 2;
+        const leftPanelEndY = hingeY + openDir * panelWidth;
+        ctx.beginPath();
+        ctx.moveTo(-doorWidth / 2, hingeY);
+        ctx.lineTo(leftPanelEndX, leftPanelEndY);
+        ctx.stroke();
+
+        // Right door panel line (at 90 degrees open)
+        const rightPanelEndX = doorWidth / 2;
+        const rightPanelEndY = hingeY + openDir * panelWidth;
+        ctx.beginPath();
+        ctx.moveTo(doorWidth / 2, hingeY);
+        ctx.lineTo(rightPanelEndX, rightPanelEndY);
+        ctx.stroke();
+
+      } else if (doorType === 'sliding') {
+        // Sliding door - two parallel lines
+        ctx.beginPath();
+        ctx.moveTo(-doorWidth / 2, -thickness / 4);
+        ctx.lineTo(0, -thickness / 4);
+        ctx.moveTo(0, thickness / 4);
+        ctx.lineTo(doorWidth / 2, thickness / 4);
+        ctx.stroke();
+
+        // Center mullion
+        ctx.beginPath();
+        ctx.moveTo(0, -thickness / 2);
+        ctx.lineTo(0, thickness / 2);
+        ctx.stroke();
+
+      } else if (doorType === 'bifold') {
+        // Bifold door - zigzag pattern showing folded panels
+        const hingeY = openDir === 1 ? thickness / 2 : -thickness / 2;
+        ctx.beginPath();
+        ctx.moveTo(-doorWidth / 2, 0);
+        ctx.lineTo(-doorWidth / 4, hingeY + openDir * 8);
+        ctx.lineTo(0, 0);
+        ctx.moveTo(doorWidth / 2, 0);
+        ctx.lineTo(doorWidth / 4, hingeY + openDir * 8);
+        ctx.lineTo(0, 0);
+        ctx.stroke();
+
+      } else if (doorType === 'garage') {
+        // Garage door - simple rectangle with lines
+        ctx.strokeRect(-doorWidth / 2, -thickness / 2, doorWidth, thickness);
+        // Horizontal section lines
+        const sections = 4;
+        for (let i = 1; i < sections; i++) {
+          const y = -thickness / 2 + (thickness / sections) * i;
+          ctx.beginPath();
+          ctx.moveTo(-doorWidth / 2, y);
+          ctx.lineTo(doorWidth / 2, y);
+          ctx.stroke();
+        }
+
+      } else {
+        // Single door (default) - respects swing and openDirection
+        const hingeX = swing === 'left' ? -doorWidth / 2 : doorWidth / 2;
+        const hingeY = openDir === 1 ? thickness / 2 : -thickness / 2;
+
+        // Calculate arc angles based on swing and open direction
+        let arcStart, arcEnd, counterClockwise;
+        if (swing === 'left') {
+          arcStart = 0;
+          arcEnd = openDir === 1 ? Math.PI / 2 : -Math.PI / 2;
+          counterClockwise = openDir === -1;
+        } else {
+          arcStart = Math.PI;
+          arcEnd = openDir === 1 ? Math.PI / 2 : 3 * Math.PI / 2;
+          counterClockwise = openDir === 1;
+        }
+
+        // Door arc
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(hingeX, hingeY, doorWidth, arcStart, arcEnd, counterClockwise);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Door panel line from hinge to open position
+        const panelEndX = hingeX + Math.cos(arcEnd) * doorWidth;
+        const panelEndY = hingeY + Math.sin(arcEnd) * doorWidth;
+        ctx.beginPath();
+        ctx.moveTo(hingeX, hingeY);
+        ctx.lineTo(panelEndX, panelEndY);
+        ctx.stroke();
+      }
 
       ctx.restore();
     });
